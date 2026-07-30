@@ -19,6 +19,31 @@ router.get('/:code', requireAuth, blockPending, async (req, res) => {
   res.json(rows[0]);
 });
 
+// Cadastro em lote — usado pela tela de importação da Contagem, quando o
+// arquivo do fornecedor traz vários códigos que ainda não existem no
+// cadastro. Não tem nenhuma implicação fiscal (é só cadastro de matéria-
+// prima), por isso pode entrar tudo de uma vez com código e nome exatamente
+// como vieram no arquivo, sem precisar abrir um a um.
+router.post('/bulk', requireAuth, requireEdit('cadastros'), async (req, res) => {
+  const { items } = req.body || {};
+  if (!Array.isArray(items) || !items.length) {
+    return res.status(400).json({ error: 'Nenhum item informado.' });
+  }
+  const created = [];
+  const skipped = [];
+  for (const item of items) {
+    if (!item || !item.code || !item.nome) continue;
+    const { rows: existing } = await db.query('SELECT code FROM raw_materials WHERE code = $1', [item.code]);
+    if (existing.length) { skipped.push(item.code); continue; }
+    await db.query(
+      'INSERT INTO raw_materials (code, nome, unidade) VALUES ($1, $2, $3)',
+      [item.code, item.nome, item.unidade || 'KG']
+    );
+    created.push(item.code);
+  }
+  res.status(201).json({ created, skipped });
+});
+
 router.post('/', requireAuth, requireEdit('cadastros'), async (req, res) => {
   const { code, nome, unidade } = req.body || {};
   if (!code || !nome) return res.status(400).json({ error: 'Informe código e nome.' });

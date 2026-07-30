@@ -55,6 +55,7 @@ export const api = {
   rawMaterials: {
     list: () => request('GET', '/raw-materials'),
     create: (m) => request('POST', '/raw-materials', m),
+    bulkCreate: (items) => request('POST', '/raw-materials/bulk', { items }),
     update: (code, m) => request('PUT', `/raw-materials/${encodeURIComponent(code)}`, m),
     remove: (code) => request('DELETE', `/raw-materials/${encodeURIComponent(code)}`),
   },

@@ -177,10 +177,9 @@ function Login({ onLogin }) {
 
 // -------------------------------------------------------------- Cadastros
 
-function RawMaterialForm({ initial, onSaved, onCancel }) {
+function RawMaterialForm({ initial, isEdit, onSaved, onCancel }) {
   const [form, setForm] = useState(initial || { code: '', nome: '', unidade: 'KG' });
   const [error, setError] = useState('');
-  const isEdit = !!initial;
 
   async function submit(e) {
     e.preventDefault();
@@ -218,12 +217,12 @@ function RawMaterialForm({ initial, onSaved, onCancel }) {
   );
 }
 
-function RawMaterialsSection({ canEdit, prefillCode, onRegistered }) {
+function RawMaterialsSection({ canEdit, prefill, onRegistered }) {
   const [materials, reload] = useAsyncList(api.rawMaterials.list, []);
   const [editing, setEditing] = useState(null);
-  const [showNew, setShowNew] = useState(!!prefillCode);
+  const [showNew, setShowNew] = useState(!!prefill);
 
-  useEffect(() => { if (prefillCode) setShowNew(true); }, [prefillCode]);
+  useEffect(() => { if (prefill) setShowNew(true); }, [prefill]);
 
   return (
     <div>
@@ -233,15 +232,16 @@ function RawMaterialsSection({ canEdit, prefillCode, onRegistered }) {
       {canEdit && showNew && (
         <div style={{ marginTop: 12 }}>
           <RawMaterialForm
-            initial={prefillCode ? { code: prefillCode, nome: '', unidade: 'KG' } : null}
-            onSaved={() => { setShowNew(false); reload(); if (prefillCode && onRegistered) onRegistered(prefillCode); }}
+            initial={prefill ? { code: prefill.code, nome: prefill.nome || '', unidade: 'KG' } : null}
+            isEdit={false}
+            onSaved={() => { setShowNew(false); reload(); if (prefill && onRegistered) onRegistered(prefill.code); }}
             onCancel={() => setShowNew(false)}
           />
         </div>
       )}
       {editing && (
         <div style={{ marginTop: 12 }}>
-          <RawMaterialForm initial={editing} onSaved={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
+          <RawMaterialForm initial={editing} isEdit onSaved={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
         </div>
       )}
       <table style={{ ...styles.table, marginTop: 16 }} className="bp-table-scroll">
@@ -365,7 +365,8 @@ function CadastrosTab({ perms, pendingRegister, onRegistered }) {
       <h1 style={styles.h1}>Cadastros</h1>
       {pendingRegister && (
         <Banner tone="warning">
-          Cadastrando matéria-prima pendente da contagem — código <b>{pendingRegister}</b>. Ao salvar, você volta para a importação.
+          Cadastrando matéria-prima pendente da contagem — código <b>{pendingRegister.code}</b>
+          {pendingRegister.nome ? <> ({pendingRegister.nome})</> : null}, igual ao arquivo importado. Ao salvar, você volta para a importação.
         </Banner>
       )}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -373,7 +374,7 @@ function CadastrosTab({ perms, pendingRegister, onRegistered }) {
         <button style={styles.button(sub === 'materias' ? 'primary' : 'ghost')} onClick={() => setSub('materias')}>Matérias-Primas</button>
       </div>
       {sub === 'produtos' && <ProductsSection canEdit={canEdit} />}
-      {sub === 'materias' && <RawMaterialsSection canEdit={canEdit} prefillCode={pendingRegister} onRegistered={onRegistered} />}
+      {sub === 'materias' && <RawMaterialsSection canEdit={canEdit} prefill={pendingRegister} onRegistered={onRegistered} />}
     </div>
   );
 }
@@ -589,41 +590,96 @@ function MateriaPrimaProduzidaTab({ perms }) {
 
 function ImportPendentes({ contagemId, pendentes, onResolved, onGoRegister }) {
   const [rows, setRows] = useState(pendentes);
+  const [selected, setSelected] = useState(() => new Set(pendentes.map((_, i) => i)));
+  const [unidadePadrao, setUnidadePadrao] = useState('KG');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   function updateCode(i, code) { setRows(rows.map((r, idx) => (idx === i ? { ...r, code } : r))); }
 
+  function toggleAll(checked) {
+    setSelected(checked ? new Set(rows.map((_, i) => i)) : new Set());
+  }
+  function toggleOne(i, checked) {
+    const next = new Set(selected);
+    if (checked) next.add(i); else next.delete(i);
+    setSelected(next);
+  }
+
   async function retry() {
     setBusy(true);
+    setError('');
     try {
       const result = await api.contagens.importRetry(contagemId, rows);
       onResolved(result);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setBusy(false);
     }
   }
 
+  // Cadastra de uma vez, com o mesmo código e a mesma descrição do arquivo —
+  // não é lançamento fiscal, então não precisa abrir item por item — e já
+  // tenta aplicar o saldo em seguida.
+  async function cadastrarSelecionados() {
+    const itens = rows.filter((_, i) => selected.has(i)).map((r) => ({ code: r.code, nome: r.descricao, unidade: unidadePadrao }));
+    if (!itens.length) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api.rawMaterials.bulkCreate(itens);
+      const result = await api.contagens.importRetry(contagemId, rows);
+      onResolved(result);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const allSelected = rows.length > 0 && selected.size === rows.length;
+
   return (
     <div style={{ ...styles.card, background: '#FCEFDA' }}>
       <h3 style={styles.h2}>Itens não encontrados no cadastro ({rows.length})</h3>
       <p style={{ fontSize: 13, color: colors.textMuted }}>
-        O código do arquivo não bate com nenhuma matéria-prima cadastrada. Corrija o código manualmente
-        (se for só diferença de formatação) ou cadastre a matéria-prima nova e volte aqui.
+        O código do arquivo não bate com nenhuma matéria-prima cadastrada. Marque os itens que são
+        matéria-prima nova de verdade e cadastre todos de uma vez, com código e nome iguais aos do
+        arquivo (não é lançamento fiscal, não precisa abrir um por um) — ou corrija o código manualmente
+        se for só diferença de formatação.
       </p>
+      {error && <Banner tone="danger">{error}</Banner>}
       <table style={styles.table} className="bp-table-scroll">
-        <thead><tr><th style={styles.th}>Código no arquivo</th><th style={styles.th}>Descrição</th><th style={styles.th}>Saldo</th><th style={styles.th}></th></tr></thead>
+        <thead>
+          <tr>
+            <th style={styles.th}><input type="checkbox" checked={allSelected} onChange={(e) => toggleAll(e.target.checked)} /></th>
+            <th style={styles.th}>Código no arquivo</th><th style={styles.th}>Descrição</th><th style={styles.th}>Saldo</th><th style={styles.th}></th>
+          </tr>
+        </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i}>
+              <td style={styles.td}><input type="checkbox" checked={selected.has(i)} onChange={(e) => toggleOne(i, e.target.checked)} /></td>
               <td style={styles.td}><input style={styles.input} value={r.code} onChange={(e) => updateCode(i, e.target.value)} /></td>
               <td style={styles.td}>{r.descricao}</td>
               <td style={styles.td}>{formatNumber(r.saldo)}</td>
-              <td style={styles.td}><button style={styles.button('ghost')} onClick={() => onGoRegister(r.code)}>Cadastrar</button></td>
+              <td style={styles.td}><button style={styles.button('ghost')} onClick={() => onGoRegister(r.code, r.descricao)}>Cadastrar só este</button></td>
             </tr>
           ))}
         </tbody>
       </table>
-      <button style={{ ...styles.button('primary'), marginTop: 12 }} disabled={busy} onClick={retry}>Tentar novamente</button>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
+        <Field label="Unidade para os novos cadastros">
+          <select style={{ ...styles.select, width: 100 }} value={unidadePadrao} onChange={(e) => setUnidadePadrao(e.target.value)}>
+            {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
+          </select>
+        </Field>
+        <button style={styles.button('primary')} disabled={busy || !selected.size} onClick={cadastrarSelecionados}>
+          Cadastrar {selected.size || ''} selecionado(s) e aplicar saldo
+        </button>
+        <button style={styles.button('ghost')} disabled={busy} onClick={retry}>Tentar novamente</button>
+      </div>
     </div>
   );
 }
@@ -687,7 +743,7 @@ function ContagemDetail({ id, perms, onGoRegister, refreshKey }) {
           contagemId={id}
           pendentes={importResult.pendentes}
           onResolved={(r) => { setImportResult(r); load(); }}
-          onGoRegister={(code) => onGoRegister(id, importResult.pendentes, code)}
+          onGoRegister={(code, nome) => onGoRegister(id, code, nome)}
         />
       )}
 
@@ -1051,7 +1107,7 @@ function Layout({ user, perms, onLogout }) {
   const [activeTab, setActiveTab] = useState(visibleNav[0]?.id || 'contagem_mobile');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [contagemSelecionada, setContagemSelecionada] = useState(null);
-  const [pendingRegister, setPendingRegister] = useState(null); // { contagemId, code }
+  const [pendingRegister, setPendingRegister] = useState(null); // { contagemId, code, nome }
   const [contagemRefreshKey, setContagemRefreshKey] = useState(0);
 
   function selectTab(id) {
@@ -1059,8 +1115,8 @@ function Layout({ user, perms, onLogout }) {
     setSidebarOpen(false);
   }
 
-  function goRegister(contagemId, pendentes, code) {
-    setPendingRegister({ contagemId, code });
+  function goRegister(contagemId, code, nome) {
+    setPendingRegister({ contagemId, code, nome });
     setContagemSelecionada(contagemId);
     setActiveTab('cadastros');
   }
@@ -1090,7 +1146,7 @@ function Layout({ user, perms, onLogout }) {
           <button style={styles.button('ghost')} onClick={onLogout}>Sair</button>
         </div>
         <div className="bp-content" style={styles.content}>
-          {activeTab === 'cadastros' && <CadastrosTab perms={perms} pendingRegister={pendingRegister?.code} onRegistered={onMaterialRegistered} />}
+          {activeTab === 'cadastros' && <CadastrosTab perms={perms} pendingRegister={pendingRegister} onRegistered={onMaterialRegistered} />}
           {activeTab === 'explosao' && <ExplosaoTab perms={perms} />}
           {activeTab === 'materia_prima_produzida' && <MateriaPrimaProduzidaTab perms={perms} />}
           {activeTab === 'contagem' && <ContagemTab perms={perms} selected={contagemSelecionada} onSelect={setContagemSelecionada} onGoRegister={goRegister} refreshKey={contagemRefreshKey} />}
