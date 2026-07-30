@@ -1,0 +1,26 @@
+{
+  "name": "barella-inventario-system",
+  "version": "1.0.0",
+  "description": "Sistema de Inventario - Barella Plast - explosao de materia-prima e contagem de estoque com fornecedor",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "seed": "node server/seed.js",
+    "import-xlsx": "node server/import-from-xlsx.js",
+    "build:web": "cd web && npm install && npm run build",
+    "setup": "npm install && npm run build:web && npm run seed"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "express-async-errors": "^3.1.1",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.0",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.13.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}

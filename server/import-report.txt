@@ -1,0 +1,59 @@
+Lendo INVENTÁRIO Ba.xlsx
+Matérias-primas: 82
+Produtos: 107
+Itens de BOM (produto x matéria-prima): 237
+Misturas (Explosão): 31
+Estoque virgem informado: 26
+
+Avisos (29):
+ - Bloco "PP MASTER CINZA" (B15), coluna E ("MASTER PRETO"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por nome-exato para 0053-19. Confira.
+ - Bloco "PP MASTER AMARELO" (Q15), coluna T ("MASTER AMARELO"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por nome-exato para 0053-90. Confira.
+ - Bloco "PP VS + MASTER  CINZA 0053-16" (L26), coluna O ("MASTER CINZA"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por sintetico para AUTO-MASTER-CINZA. Confira.
+ - Bloco "PP VS + MASTER  VERMELHO 0053-56" (B37), coluna E ("MASTER VERM"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por nome-parcial para 0053-80. Confira.
+ - Bloco "PP KM + VERMELHO 0053-80" (L37), coluna O ("MASTER RED"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por nome-parcial para AUTO-MASTER-RED-ABS. Confira.
+ - Bloco "PP VS+ MASTER Azul 0053-81" (B51), coluna E ("MASTER AZUL"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por nome-exato para 0053-81. Confira.
+ - Bloco "ABS Prata 90" (R62), coluna U ("MASTER PRATA"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por nome-exato para 0053-90. Confira.
+ - Bloco "SAN MASTERIZADO" (G63), coluna M ("BORRA"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por nome-parcial para 0071-02. Confira.
+ - Bloco "PP VS 202 preto" (M74), coluna O ("PPVS"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por sintetico para AUTO-PPVS. Confira.
+ - Bloco "PP VS 202 preto" (M74), coluna P ("MASTER PRETO"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por nome-exato para 0053-19. Confira.
+ - Bloco "PP VS 202 red" (R74), coluna U ("Master red"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por nome-parcial para AUTO-MASTER-RED-ABS. Confira.
+ - Bloco "Trava da cuba PBT" (G85), coluna M ("PP VS 202 red exportacão"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por sintetico para AUTO-PP-VS-202-RED-EXPORTACAO. Confira.
+ - Bloco "PP VS 202 red exportacão" (M86), coluna P ("MASTER PRETO"): matéria-prima não confirmada pelas fórmulas da Planilha Mestre — resolvida por nome-exato para 0053-19. Confira.
+ - Coluna T da Planilha Mestre ("MASTER MARSALA") -> AUTO-MASTER-MARSALA (via sintetico).
+ - Coluna U da Planilha Mestre ("PEBD ANTICHAMA") -> 0049-27 (via nome-parcial).
+ - Coluna V da Planilha Mestre ("ETIQUETA INOX COOKTOP") -> AUTO-ETIQUETA-INOX-COOKTOP (via sintetico).
+ - Coluna W da Planilha Mestre ("MOLA COOKTOP Antiga ") -> AUTO-MOLA-COOKTOP-ANTIGA (via sintetico).
+ - Coluna X da Planilha Mestre ("PORCA M8") -> 0103-02 (via nome-exato).
+ - Coluna Z da Planilha Mestre ("ABS NATURAL ") -> 0212-01 (via nome-exato).
+ - Coluna AA da Planilha Mestre ("MASTER PRETO ABS ") -> 0053-19 (via nome-parcial).
+ - Coluna AB da Planilha Mestre ("SAM ") -> 0153-01 (via nome-exato).
+ - Coluna AD da Planilha Mestre ("MASTER RED ABS ") -> AUTO-MASTER-RED-ABS (via sintetico).
+ - Coluna AG da Planilha Mestre ("MOLA DO MANIPULO [ VERSÃO B ]") -> 0496-78 (via nome-exato).
+ - Coluna AH da Planilha Mestre ("Master Verde Palmeiras ") -> AUTO-MASTER-VERDE-PALMEIRAS (via sintetico).
+ - Coluna AI da Planilha Mestre ("Master Vermelho São Paulo  ") -> AUTO-MASTER-VERMELHO-SAO-PAULO (via sintetico).
+ - Coluna AJ da Planilha Mestre ("Etiqueta do L99 polido ") -> AUTO-ETIQUETA-DO-L99-POLIDO (via sintetico).
+ - Coluna AK da Planilha Mestre ("PBT PRETO ") -> 0049-12 (via nome-exato).
+ - Coluna AL da Planilha Mestre ("MASTER AZUL ") -> 0053-81 (via nome-exato).
+ - Coluna AM da Planilha Mestre ("MASTER PRETO CP 202XP") -> 0054-66 (via nome-exato).
+
+Validando totais contra a planilha original...
+DIVERGÊNCIAS em 17 matéria(s)-prima(s):
+  0049-01 (PP NAT. FLUIDEZ 14 A 26 (HP 550R): esperado 21198.609110000005, calculado 21193.3901, diff 5.2190
+  0049-04 (PP NAT. FLUIDEZ 2,5 A 4,5 (HP 550K): esperado 1148.8946, calculado 574.4473, diff 574.4473
+  0053-19 (MASTER PRETO): esperado 362.427399, calculado 373.733595, diff 11.3062
+  0053-81 (MASTER AZUL): esperado 0, calculado 8.10507, diff 8.1051
+  0399-60 (ETIQUETA COOKTOP): esperado 26544, calculado 16500, diff 10044.0000
+  0053-54 (MASTER REMAFIM BRANCO): esperado 186.43158, calculado 189.9567, diff 3.5251
+  0212-01 (ABS Natural): esperado 0, calculado 30.26025, diff 30.2602
+  0153-01 (SAM): esperado 101.779, calculado 2.3535749999999998, diff 99.4254
+  0197-35 (Etiqueta do LD AF): esperado 11883, calculado 16366, diff 4483.0000
+  0153-03 (SAN VERMELHO (MASTERIZADO)): esperado 116.869075, calculado 15.090074999999999, diff 101.7790
+  0049-30 (PP NAT. FLUIDEZ 26 (CP 202XP)): esperado 2018.4850279999998, calculado 1376.5526479999999, diff 641.9324
+  0496-78 (MOLA DO MANIPULO [ VERSÃO B ]): esperado 53947, calculado 58430, diff 4483.0000
+  1317-32 (ETIQUETA INOX POLIDO BOTÃO [VTX]): esperado 9.5, calculado 0, diff 9.5000
+  0053-85 (Master para Sam Vermelho): esperado 0, calculado 101.779, diff 101.7790
+  0049-12 (PBT PRETO): esperado 0, calculado 428.202, diff 428.2020
+  0049-41 (PBT PRETO): esperado 836.552, calculado 408.35, diff 428.2020
+  0054-66 (MASTER PRETO CP 202XP): esperado 0.824872, calculado 2.084472, diff 1.2596
+
+DATABASE_URL não definida — só validei o parser, nada foi gravado no banco.
