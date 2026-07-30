@@ -8,7 +8,9 @@ const { ROLES } = require('../constants');
 const router = express.Router();
 
 router.get('/', requireAuth, requireView('usuarios'), async (req, res) => {
-  const { rows } = await db.query('SELECT id, username, name, role, created_at FROM users ORDER BY name');
+  const { rows } = await db.query(
+    'SELECT id, username, name, role, email, phone, created_at AS "createdAt" FROM users ORDER BY (role = \'pendente\') DESC, name'
+  );
   res.json(rows);
 });
 

@@ -16,6 +16,29 @@ const loginLimiter = rateLimit({
   message: { error: 'Muitas tentativas de login. Tente novamente em alguns minutos.' },
 });
 
+router.post('/register', loginLimiter, async (req, res) => {
+  const { username, password, name, email, phone } = req.body || {};
+  if (!username || !password || !name) {
+    return res.status(400).json({ error: 'Preencha nome, usuário e senha.' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'A senha precisa ter no mínimo 8 caracteres.' });
+  }
+  const { rows: existing } = await db.query('SELECT id FROM users WHERE username = $1', [username]);
+  if (existing.length) {
+    return res.status(409).json({ error: 'Já existe um usuário com esse login.' });
+  }
+  const id = crypto.randomUUID();
+  const hash = bcrypt.hashSync(password, 10);
+  // Entra sempre com papel 'pendente' — só um administrador consegue liberar
+  // o acesso de verdade, trocando o papel em Usuários (ver server/routes/users.js).
+  await db.query(
+    'INSERT INTO users (id, username, password_hash, name, role, email, phone) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+    [id, username, hash, name, 'pendente', email || null, phone || null]
+  );
+  res.status(201).json({ ok: true });
+});
+
 router.post('/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {

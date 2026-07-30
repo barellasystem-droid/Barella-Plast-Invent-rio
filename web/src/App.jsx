@@ -41,7 +41,7 @@ function useAsyncList(loader, deps = []) {
 
 // ------------------------------------------------------------------- Login
 
-function Login({ onLogin }) {
+function LoginForm({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -63,25 +63,114 @@ function Login({ onLogin }) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.sidebarBg }}>
-      <form onSubmit={submit} style={{ background: colors.surface, padding: 32, borderRadius: 12, width: 320 }}>
+    <form onSubmit={submit}>
+      {error && <Banner tone="danger">{error}</Banner>}
+      <div style={{ marginBottom: 12 }}>
+        <Field label="Usuário">
+          <input style={styles.input} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+        </Field>
+      </div>
+      <div style={{ marginBottom: 20 }}>
+        <Field label="Senha">
+          <input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </Field>
+      </div>
+      <button type="submit" disabled={loading} style={{ ...styles.button('primary'), width: '100%' }}>
+        {loading ? 'Entrando...' : 'Entrar'}
+      </button>
+    </form>
+  );
+}
+
+function RegisterForm({ onRegistered }) {
+  const [form, setForm] = useState({ name: '', username: '', password: '', confirmPassword: '', email: '', phone: '' });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    if (form.password !== form.confirmPassword) {
+      setError('As senhas não conferem.');
+      return;
+    }
+    if (form.password.length < 8) {
+      setError('A senha precisa ter no mínimo 8 caracteres.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.auth.register(form);
+      onRegistered();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit}>
+      {error && <Banner tone="danger">{error}</Banner>}
+      <div style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
+        <Field label="Nome completo">
+          <input style={styles.input} required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus />
+        </Field>
+        <Field label="Usuário (login)">
+          <input style={styles.input} required value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+        </Field>
+        <Field label="E-mail (opcional)">
+          <input style={styles.input} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        </Field>
+        <Field label="Telefone (opcional)">
+          <input style={styles.input} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+        </Field>
+        <Field label="Senha">
+          <input style={styles.input} type="password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+        </Field>
+        <Field label="Confirmar senha">
+          <input style={styles.input} type="password" required value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} />
+        </Field>
+      </div>
+      <button type="submit" disabled={loading} style={{ ...styles.button('primary'), width: '100%' }}>
+        {loading ? 'Enviando...' : 'Criar conta'}
+      </button>
+    </form>
+  );
+}
+
+function Login({ onLogin }) {
+  const [mode, setMode] = useState('login'); // 'login' | 'register' | 'registered'
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.sidebarBg, padding: 20 }}>
+      <div style={{ background: colors.surface, padding: 32, borderRadius: 12, width: 360 }}>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, marginTop: 0 }}>Barella Plast</h1>
         <p style={{ color: colors.textMuted, marginTop: -8, marginBottom: 20, fontSize: 13 }}>Sistema de Inventário</p>
-        {error && <Banner tone="danger">{error}</Banner>}
-        <div style={{ marginBottom: 12 }}>
-          <Field label="Usuário">
-            <input style={styles.input} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
-          </Field>
+
+        {mode === 'login' && <LoginForm onLogin={onLogin} />}
+
+        {mode === 'register' && <RegisterForm onRegistered={() => setMode('registered')} />}
+
+        {mode === 'registered' && (
+          <Banner tone="success">
+            Cadastro enviado! Assim que um administrador aprovar seu acesso, você já pode entrar com o login e senha criados.
+          </Banner>
+        )}
+
+        <div style={{ marginTop: 16, textAlign: 'center', fontSize: 13 }}>
+          {mode === 'login' && (
+            <button type="button" onClick={() => setMode('register')} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontWeight: 600 }}>
+              Ainda não tenho acesso — criar conta
+            </button>
+          )}
+          {mode !== 'login' && (
+            <button type="button" onClick={() => setMode('login')} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontWeight: 600 }}>
+              ← Voltar para o login
+            </button>
+          )}
         </div>
-        <div style={{ marginBottom: 20 }}>
-          <Field label="Senha">
-            <input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          </Field>
-        </div>
-        <button type="submit" disabled={loading} style={{ ...styles.button('primary'), width: '100%' }}>
-          {loading ? 'Entrando...' : 'Entrar'}
-        </button>
-      </form>
+      </div>
     </div>
   );
 }
@@ -800,6 +889,40 @@ function ContagemMobileTab({ perms }) {
 
 // -------------------------------------------------------------- Usuários
 
+function PendingUserRow({ user, canEdit, onResolved }) {
+  const [role, setRole] = useState('estoque');
+
+  async function aprovar() {
+    await api.users.update(user.id, { role });
+    onResolved();
+  }
+  async function recusar() {
+    if (!confirm(`Recusar o cadastro de ${user.name}?`)) return;
+    await api.users.remove(user.id);
+    onResolved();
+  }
+
+  return (
+    <tr>
+      <td style={styles.td}>{user.username}</td>
+      <td style={styles.td}>{user.name}</td>
+      <td style={styles.td}>{user.email || '-'}</td>
+      <td style={styles.td}>{user.phone || '-'}</td>
+      {canEdit && (
+        <td style={styles.td}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <select style={{ ...styles.select, width: 140 }} value={role} onChange={(e) => setRole(e.target.value)}>
+              {ROLES.filter((r) => r !== 'pendente').map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+            </select>
+            <button style={styles.button('primary')} onClick={aprovar}>Aprovar</button>
+            <button style={styles.button('danger')} onClick={recusar}>Recusar</button>
+          </div>
+        </td>
+      )}
+    </tr>
+  );
+}
+
 function UsuariosTab({ perms }) {
   const [users, reload] = useAsyncList(api.users.list, []);
   const [form, setForm] = useState({ username: '', password: '', name: '', role: 'estoque' });
@@ -818,9 +941,25 @@ function UsuariosTab({ perms }) {
     }
   }
 
+  const pendentes = (users || []).filter((u) => u.role === 'pendente');
+  const ativos = (users || []).filter((u) => u.role !== 'pendente');
+
   return (
     <div>
       <h1 style={styles.h1}>Usuários</h1>
+
+      {pendentes.length > 0 && (
+        <div style={{ ...styles.card, background: '#FCEFDA' }}>
+          <h2 style={styles.h2}>Cadastros aguardando aprovação ({pendentes.length})</h2>
+          <table style={styles.table} className="bp-table-scroll">
+            <thead><tr><th style={styles.th}>Login</th><th style={styles.th}>Nome</th><th style={styles.th}>E-mail</th><th style={styles.th}>Telefone</th>{canEdit && <th style={styles.th}>Ação</th>}</tr></thead>
+            <tbody>
+              {pendentes.map((u) => <PendingUserRow key={u.id} user={u} canEdit={canEdit} onResolved={reload} />)}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {canEdit && (
         <form onSubmit={create} style={{ ...styles.card, background: '#FAFAFA' }}>
           {error && <Banner tone="danger">{error}</Banner>}
@@ -830,7 +969,7 @@ function UsuariosTab({ perms }) {
             <Field label="Nome"><input style={styles.input} required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
             <Field label="Papel">
               <select style={styles.select} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-                {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                {ROLES.filter((r) => r !== 'pendente').map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
               </select>
             </Field>
           </div>
@@ -840,7 +979,7 @@ function UsuariosTab({ perms }) {
       <table style={{ ...styles.table, marginTop: 16 }} className="bp-table-scroll">
         <thead><tr><th style={styles.th}>Login</th><th style={styles.th}>Nome</th><th style={styles.th}>Papel</th>{canEdit && <th style={styles.th}></th>}</tr></thead>
         <tbody>
-          {(users || []).map((u) => (
+          {ativos.map((u) => (
             <tr key={u.id}>
               <td style={styles.td}>{u.username}</td>
               <td style={styles.td}>{u.name}</td>
@@ -988,5 +1127,18 @@ export default function App() {
 
   if (loading) return null;
   if (!user) return <Login onLogin={handleLogin} />;
+  if (user.role === 'pendente') {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.sidebarBg, padding: 20 }}>
+        <div style={{ background: colors.surface, padding: 32, borderRadius: 12, width: 360, textAlign: 'center' }}>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, marginTop: 0 }}>Aguardando aprovação</h1>
+          <p style={{ color: colors.textMuted, fontSize: 14 }}>
+            Seu cadastro ({user.name}) ainda não foi aprovado por um administrador. Assim que for liberado, você poderá acessar normalmente.
+          </p>
+          <button style={{ ...styles.button('ghost'), marginTop: 12 }} onClick={handleLogout}>Sair</button>
+        </div>
+      </div>
+    );
+  }
   return <Layout user={user} perms={perms} onLogout={handleLogout} />;
 }

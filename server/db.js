@@ -125,6 +125,14 @@ async function init() {
       criado_em TIMESTAMPTZ DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS idx_contagem_lancamentos_item ON contagem_lancamentos(contagem_item_id);
+
+    -- Cadastro público (auto-registro): quem se cadastra pela tela de login
+    -- entra com o papel 'pendente' e só ganha acesso de verdade quando um
+    -- administrador troca o papel dele (ver server/routes/auth.js e
+    -- server/routes/users.js). ADD COLUMN IF NOT EXISTS porque users já pode
+    -- existir em produção com dados reais.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
   `);
 }
 
