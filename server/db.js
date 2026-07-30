@@ -87,7 +87,7 @@ async function init() {
 
     CREATE TABLE IF NOT EXISTS blend_state_quantities (
       blend_id TEXT NOT NULL REFERENCES blends(id) ON DELETE CASCADE,
-      estado TEXT NOT NULL CHECK (estado IN ('BORRA','MISTURA','GALHO','VARREDURA','MOIDO','SUCATA','MAQUINA')),
+      estado TEXT NOT NULL CHECK (estado IN ('BORRA','MISTURA','GALHO','PECA','VARREDURA','MOIDO','SUCATA','MAQUINA')),
       quantidade DOUBLE PRECISION NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ DEFAULT now(),
       updated_by TEXT,
@@ -133,6 +133,13 @@ async function init() {
     -- existir em produção com dados reais.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+
+    -- Adiciona o estado "Peça" (quanto do lote de uma mistura vira peça boa,
+    -- não só refugo). CREATE TABLE IF NOT EXISTS não altera o CHECK de uma
+    -- tabela que já existe, por isso troca a constraint explicitamente.
+    ALTER TABLE blend_state_quantities DROP CONSTRAINT IF EXISTS blend_state_quantities_estado_check;
+    ALTER TABLE blend_state_quantities ADD CONSTRAINT blend_state_quantities_estado_check
+      CHECK (estado IN ('BORRA','MISTURA','GALHO','PECA','VARREDURA','MOIDO','SUCATA','MAQUINA'));
   `);
 }
 

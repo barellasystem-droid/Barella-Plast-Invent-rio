@@ -21,7 +21,7 @@
 // subcabeçalhos da Explosão.
 const path = require('path');
 const XLSX = require('xlsx');
-const { ESTADOS } = require('./constants');
+const { ESTADOS_PLANILHA } = require('./constants');
 const { computeRawMaterialSummary } = require('./calc');
 
 const CODE_RE = /\d{3,4}-\d{2,3}[A-Za-z]{0,3}/;
@@ -254,12 +254,12 @@ function parseBlends(ws, explosaoCellMap, materialIndex) {
 
     const stateRows = {};
     let mismatch = false;
-    for (let i = 0; i < ESTADOS.length; i++) {
+    for (let i = 0; i < ESTADOS_PLANILHA.length; i++) {
       const r = headerRow + 1 + i;
       const label = normalizeText(cellValue(ws, r, estadoCol)).replace(/í/g, 'i').replace(/á/g, 'a');
-      const expected = ESTADOS[i].toLowerCase();
+      const expected = ESTADOS_PLANILHA[i].toLowerCase();
       if (label && label !== expected) { mismatch = true; break; }
-      stateRows[ESTADOS[i]] = r;
+      stateRows[ESTADOS_PLANILHA[i]] = r;
     }
     if (mismatch) continue;
 
@@ -268,7 +268,7 @@ function parseBlends(ws, explosaoCellMap, materialIndex) {
     const components = [];
     for (const c of componentCols) {
       let code = null;
-      for (const estado of ESTADOS) {
+      for (const estado of ESTADOS_PLANILHA) {
         const addr = cellAddr(stateRows[estado], c);
         if (explosaoCellMap[addr]) { code = explosaoCellMap[addr].code; break; }
       }
@@ -282,7 +282,7 @@ function parseBlends(ws, explosaoCellMap, materialIndex) {
       }
 
       let percentual = null;
-      for (const estado of ESTADOS) {
+      for (const estado of ESTADOS_PLANILHA) {
         const f = cellFormula(ws, stateRows[estado], c);
         if (!f) continue;
         const m = f.match(/^[A-Z]+\d+\*([\d.]+)%$/);
@@ -298,7 +298,7 @@ function parseBlends(ws, explosaoCellMap, materialIndex) {
     components.sort((a, b) => (a.percentual == null ? 1 : 0) - (b.percentual == null ? 1 : 0));
 
     const estados = {};
-    for (const estado of ESTADOS) {
+    for (const estado of ESTADOS_PLANILHA) {
       const v = Number(cellValue(ws, stateRows[estado], qtyCol));
       if (v) estados[estado] = v;
     }

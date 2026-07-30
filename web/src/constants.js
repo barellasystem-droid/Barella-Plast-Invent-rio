@@ -8,11 +8,12 @@ export const NAV_ITEMS = [
   { id: 'permissoes', label: 'Permissões' },
 ];
 
-export const ESTADOS = ['BORRA', 'MISTURA', 'GALHO', 'VARREDURA', 'MOIDO', 'SUCATA', 'MAQUINA'];
+export const ESTADOS = ['BORRA', 'MISTURA', 'GALHO', 'PECA', 'VARREDURA', 'MOIDO', 'SUCATA', 'MAQUINA'];
 export const ESTADO_LABELS = {
   BORRA: 'Borra',
   MISTURA: 'Mistura',
   GALHO: 'Galho',
+  PECA: 'Peça',
   VARREDURA: 'Varredura',
   MOIDO: 'Moído',
   SUCATA: 'Sucata',

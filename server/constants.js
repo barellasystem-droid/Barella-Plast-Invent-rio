@@ -28,6 +28,16 @@ const DEFAULT_PERMISSIONS = {
   permissoes: { view: ['admin'], edit: ['admin'] },
 };
 
-const ESTADOS = ['BORRA', 'MISTURA', 'GALHO', 'VARREDURA', 'MOIDO', 'SUCATA', 'MAQUINA'];
+// Estados no formato exato da aba EXPLOSÃO da planilha original (7 linhas
+// fixas por bloco) — usado só pelo importador (server/import-from-xlsx.js)
+// para achar as linhas de cada mistura. Não mexer sem revisar o parser.
+const ESTADOS_PLANILHA = ['BORRA', 'MISTURA', 'GALHO', 'VARREDURA', 'MOIDO', 'SUCATA', 'MAQUINA'];
 
-module.exports = { ROLES, TABS, DEFAULT_PERMISSIONS, ESTADOS };
+// Estados usados pelo sistema (tela Explosão, cálculo de matéria-prima
+// produzida) — inclui "Peça" (quanto do lote de uma mistura vira peça boa,
+// não só refugo/reciclo). A planilha original tinha essa coluna na tabela de
+// resumo mas nunca chegou a preencher via Explosão, por isso não faz parte
+// de ESTADOS_PLANILHA.
+const ESTADOS = ['BORRA', 'MISTURA', 'GALHO', 'PECA', 'VARREDURA', 'MOIDO', 'SUCATA', 'MAQUINA'];
+
+module.exports = { ROLES, TABS, DEFAULT_PERMISSIONS, ESTADOS, ESTADOS_PLANILHA };
