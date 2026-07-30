@@ -79,10 +79,26 @@ export function GlobalStyle() {
       @media (min-width: 901px) {
         .bp-menu-btn { display: none !important; }
       }
-      /* Tabelas largas (ex: Relatório de Contagem) ganham a própria barra de
-         rolagem horizontal em qualquer tamanho de tela, em vez de estourar
-         a página inteira — o cabeçalho/menu fica parado, só a tabela rola. */
-      table.bp-table-scroll { display: block; overflow-x: auto; white-space: nowrap; max-width: 100%; }
+      /* Tabelas largas (ex: Relatório de Contagem) ganham a própria caixa de
+         rolagem — horizontal E vertical, com altura limitada — em vez de
+         crescer com a página inteira. Assim a barra de rolagem horizontal
+         fica sempre visível perto do topo, sem precisar descer até o fim de
+         uma tabela com dezenas de linhas para conseguir usá-la. */
+      table.bp-table-scroll {
+        display: block;
+        overflow: auto;
+        white-space: nowrap;
+        max-width: 100%;
+        max-height: 65vh;
+      }
+      table.bp-table-scroll thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+      table.bp-table-scroll thead th {
+        background: #fff;
+      }
       @media (max-width: 600px) {
         .bp-content { padding: 14px !important; }
         .bp-form-grid { grid-template-columns: 1fr !important; }
