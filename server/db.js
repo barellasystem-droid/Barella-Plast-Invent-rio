@@ -94,12 +94,17 @@ async function init() {
       PRIMARY KEY (blend_id, estado)
     );
 
+    -- "data" é sempre o dia em que a contagem foi iniciada, no fuso de
+    -- Brasília (nunca informado pelo cliente) — contagem não pode ser feita
+    -- com data retroativa nem futura. Uma contagem com data diferente de hoje
+    -- vira só consulta (ver server/routes/contagens.js, assertContagemDeHoje).
     CREATE TABLE IF NOT EXISTS contagens (
       id TEXT PRIMARY KEY,
       titulo TEXT NOT NULL,
       fornecedor TEXT,
       periodo TEXT,
       status TEXT NOT NULL DEFAULT 'ABERTA',
+      data DATE NOT NULL DEFAULT ((now() AT TIME ZONE 'America/Sao_Paulo')::date),
       created_at TIMESTAMPTZ DEFAULT now(),
       created_by TEXT
     );
@@ -140,6 +145,11 @@ async function init() {
     ALTER TABLE blend_state_quantities DROP CONSTRAINT IF EXISTS blend_state_quantities_estado_check;
     ALTER TABLE blend_state_quantities ADD CONSTRAINT blend_state_quantities_estado_check
       CHECK (estado IN ('BORRA','MISTURA','GALHO','PECA','VARREDURA','MOIDO','SUCATA','MAQUINA'));
+
+    -- Contagens criadas antes dessa coluna existir ficam com a data do dia em
+    -- que essa migração rodou (não temos como saber retroativamente quando
+    -- cada uma foi de fato contada).
+    ALTER TABLE contagens ADD COLUMN IF NOT EXISTS data DATE NOT NULL DEFAULT ((now() AT TIME ZONE 'America/Sao_Paulo')::date);
   `);
 }
 

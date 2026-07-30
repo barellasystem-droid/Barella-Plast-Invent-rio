@@ -12,8 +12,30 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 
 
 const viewContagem = requireViewAny(['contagem', 'contagem_mobile']);
 
+// Contagem só pode receber lançamentos/edições no dia em que foi iniciada —
+// "data" é sempre o dia de hoje no fuso de Brasília na criação (nunca
+// informada pelo cliente, ver POST / abaixo), então uma contagem de outro dia
+// é sempre passado, nunca futuro. Usado por toda rota que "conta" alguma
+// coisa (lançamento, saldo do sistema, importação); consulta (GET) nunca é
+// bloqueada.
+const HOJE_SQL = "(now() AT TIME ZONE 'America/Sao_Paulo')::date";
+
+async function assertContagemDeHoje(contagemId) {
+  const { rows } = await db.query(`SELECT (data = ${HOJE_SQL}) AS "isToday" FROM contagens WHERE id = $1`, [contagemId]);
+  if (!rows.length) {
+    const err = new Error('Contagem não encontrada.');
+    err.status = 404;
+    throw err;
+  }
+  if (!rows[0].isToday) {
+    const err = new Error('Essa contagem é de outra data — só é possível consultar, sem lançar ou editar.');
+    err.status = 403;
+    throw err;
+  }
+}
+
 router.get('/', requireAuth, viewContagem, async (req, res) => {
-  const { rows } = await db.query('SELECT id, titulo, fornecedor, periodo, status, created_at AS "createdAt" FROM contagens ORDER BY created_at DESC');
+  const { rows } = await db.query('SELECT id, titulo, fornecedor, periodo, status, data, created_at AS "createdAt" FROM contagens ORDER BY data DESC, created_at DESC');
   res.json(rows);
 });
 
@@ -73,13 +95,18 @@ async function loadItens(contagemId) {
 }
 
 router.get('/:id', requireAuth, viewContagem, async (req, res) => {
-  const { rows } = await db.query('SELECT id, titulo, fornecedor, periodo, status, created_at AS "createdAt" FROM contagens WHERE id = $1', [req.params.id]);
+  const { rows } = await db.query(
+    `SELECT id, titulo, fornecedor, periodo, status, data, (data = ${HOJE_SQL}) AS "isToday", created_at AS "createdAt"
+     FROM contagens WHERE id = $1`,
+    [req.params.id]
+  );
   if (!rows.length) return res.status(404).json({ error: 'Contagem não encontrada.' });
   const itens = await loadItens(req.params.id);
   res.json({ ...rows[0], itens });
 });
 
 router.put('/:id/itens/:rawMaterialCode', requireAuth, requireEdit('contagem'), async (req, res) => {
+  await assertContagemDeHoje(req.params.id);
   const { saldoSistema, notasTransito, observacao } = req.body || {};
   const { rowCount } = await db.query(
     `UPDATE contagem_itens SET
@@ -112,6 +139,7 @@ router.get('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, viewContagem,
 });
 
 router.post('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, requireEdit('contagem_mobile'), async (req, res) => {
+  await assertContagemDeHoje(req.params.id);
   const valor = Number((req.body || {}).valor);
   if (Number.isNaN(valor)) return res.status(400).json({ error: 'Valor inválido.' });
   const { rows: itemRows } = await db.query(
@@ -132,6 +160,7 @@ router.post('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, requireEdit(
 });
 
 router.delete('/:id/itens/:rawMaterialCode/lancamentos/:lancamentoId', requireAuth, requireEdit('contagem_mobile'), async (req, res) => {
+  await assertContagemDeHoje(req.params.id);
   await db.query(
     `DELETE FROM contagem_lancamentos WHERE id = $1 AND contagem_item_id = (
        SELECT id FROM contagem_itens WHERE contagem_id = $2 AND raw_material_code = $3
@@ -178,9 +207,8 @@ async function applyImportRows(contagemId, entries, username) {
 }
 
 router.post('/:id/import', requireAuth, requireEdit('contagem'), upload.single('file'), async (req, res) => {
+  await assertContagemDeHoje(req.params.id);
   if (!req.file) return res.status(400).json({ error: 'Envie um arquivo XLS/XLSX ou PDF.' });
-  const { rows: contagem } = await db.query('SELECT id FROM contagens WHERE id = $1', [req.params.id]);
-  if (!contagem.length) return res.status(404).json({ error: 'Contagem não encontrada.' });
 
   const name = (req.file.originalname || '').toLowerCase();
   let entries;
@@ -205,6 +233,7 @@ router.post('/:id/import', requireAuth, requireEdit('contagem'), upload.single('
 // prima que faltava, ou corrigiu o código à mão) sem precisar reenviar o
 // arquivo original.
 router.post('/:id/import/retry', requireAuth, requireEdit('contagem'), async (req, res) => {
+  await assertContagemDeHoje(req.params.id);
   const entries = (req.body || {}).itens;
   if (!Array.isArray(entries) || !entries.length) {
     return res.status(400).json({ error: 'Nenhum item para reprocessar.' });

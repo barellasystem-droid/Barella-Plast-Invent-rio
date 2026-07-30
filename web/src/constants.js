@@ -40,3 +40,17 @@ export function formatPercent(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return '-';
   return (Number(n) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
 }
+
+// "data" vem do backend como "AAAA-MM-DD" (coluna DATE) — monta a data local
+// direto dos números em vez de usar `new Date(string)`, que interpretaria
+// como meia-noite UTC e poderia mostrar o dia errado dependendo do fuso do
+// navegador.
+export function formatDate(isoDate) {
+  if (!isoDate) return '-';
+  const [y, m, d] = String(isoDate).slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+}
+
+export function hojeBrasilia() {
+  return new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+}

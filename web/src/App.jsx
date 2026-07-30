@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api, getToken, setToken } from './api.js';
 import { styles, colors, GlobalStyle } from './styles.jsx';
-import { NAV_ITEMS, ESTADOS, ESTADO_LABELS, UNIDADES, ROLES, ROLE_LABELS, condicaoTone, formatNumber, formatPercent } from './constants.js';
+import { NAV_ITEMS, ESTADOS, ESTADO_LABELS, UNIDADES, ROLES, ROLE_LABELS, condicaoTone, formatNumber, formatPercent, formatDate, hojeBrasilia } from './constants.js';
 
 // ---------------------------------------------------------------- shared UI
 
@@ -721,15 +721,31 @@ function ContagemDetail({ id, perms, onGoRegister, refreshKey }) {
   if (error) return <Banner tone="danger">{error}</Banner>;
   if (!contagem) return <p>Carregando...</p>;
 
+  const podeEditar = canEditReport && contagem.isToday;
+
   return (
     <div>
-      <h2 style={styles.h2}>{contagem.titulo} {contagem.fornecedor ? `— ${contagem.fornecedor}` : ''}</h2>
-      {canEditReport && (
+      <h2 style={styles.h2}>
+        {contagem.titulo} {contagem.fornecedor ? `— ${contagem.fornecedor}` : ''}
+        <span style={{ fontSize: 13, color: colors.textMuted, fontWeight: 400 }}> · {formatDate(contagem.data)}</span>
+      </h2>
+      {!contagem.isToday && (
+        <Banner tone="warning">
+          Essa contagem é do dia {formatDate(contagem.data)} — só é possível consultar. Contagem só pode ser
+          lançada/editada no dia em que foi iniciada.
+        </Banner>
+      )}
+      {canEditReport && contagem.isToday && (
         <div style={{ ...styles.card, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <div>
             <label style={styles.label}>Importar Saldo do Sistema (XLS ou PDF)</label>
             <input type="file" accept=".xls,.xlsx,.pdf" onChange={handleFile} disabled={uploading} />
           </div>
+          <button style={styles.button('ghost')} onClick={() => api.contagens.exportXlsx(id, contagem.titulo + '.xlsx')}>Exportar Excel</button>
+        </div>
+      )}
+      {!contagem.isToday && (
+        <div style={{ ...styles.card, display: 'flex', justifyContent: 'flex-end' }}>
           <button style={styles.button('ghost')} onClick={() => api.contagens.exportXlsx(id, contagem.titulo + '.xlsx')}>Exportar Excel</button>
         </div>
       )}
@@ -762,19 +778,19 @@ function ContagemDetail({ id, perms, onGoRegister, refreshKey }) {
               <td style={styles.td}>{i.nome}</td>
               <td style={styles.td}>{i.unidade}</td>
               <td style={styles.td}>
-                <input style={{ ...styles.input, width: 110 }} type="number" step="any" disabled={!canEditReport}
+                <input style={{ ...styles.input, width: 110 }} type="number" step="any" disabled={!podeEditar}
                   defaultValue={i.saldoSistema} onBlur={(e) => saveItem(i.rawMaterialCode, { saldoSistema: Number(e.target.value) || 0 })} />
               </td>
               <td style={styles.td}>{formatNumber(i.saldoInventario)}</td>
               <td style={styles.td}>
-                <input style={{ ...styles.input, width: 100 }} type="number" step="any" disabled={!canEditReport}
+                <input style={{ ...styles.input, width: 100 }} type="number" step="any" disabled={!podeEditar}
                   defaultValue={i.notasTransito} onBlur={(e) => saveItem(i.rawMaterialCode, { notasTransito: Number(e.target.value) || 0 })} />
               </td>
               <td style={styles.td}>{formatNumber(i.divergencia)}</td>
               <td style={styles.td}>{formatPercent(i.divergenciaPercentual)}</td>
               <td style={styles.td}><Badge tone={condicaoTone(i.condicao)}>{i.condicao}</Badge></td>
               <td style={styles.td}>
-                <input style={{ ...styles.input, width: 160 }} disabled={!canEditReport}
+                <input style={{ ...styles.input, width: 160 }} disabled={!podeEditar}
                   defaultValue={i.observacao || ''} onBlur={(e) => saveItem(i.rawMaterialCode, { observacao: e.target.value })} />
               </td>
             </tr>
@@ -787,19 +803,29 @@ function ContagemDetail({ id, perms, onGoRegister, refreshKey }) {
 
 function NovaContagemForm({ onCreated }) {
   const [form, setForm] = useState({ titulo: '', fornecedor: '', periodo: '' });
+  const [busy, setBusy] = useState(false);
   async function submit(e) {
     e.preventDefault();
-    const { id } = await api.contagens.create(form);
-    onCreated(id);
+    setBusy(true);
+    try {
+      const { id } = await api.contagens.create(form);
+      onCreated(id);
+    } finally {
+      setBusy(false);
+    }
   }
   return (
     <form onSubmit={submit} style={{ ...styles.card, background: '#FAFAFA' }}>
+      <p style={{ marginTop: 0, fontSize: 13, color: colors.textMuted }}>
+        Data da contagem: <b>{hojeBrasilia()}</b> (hoje — não dá para escolher outra data; a contagem só pode ser
+        lançada e editada no dia em que for iniciada).
+      </p>
       <div className="bp-form-grid" style={styles.formGrid}>
         <Field label="Título"><input style={styles.input} required value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} /></Field>
         <Field label="Fornecedor"><input style={styles.input} value={form.fornecedor} onChange={(e) => setForm({ ...form, fornecedor: e.target.value })} /></Field>
         <Field label="Período"><input style={styles.input} placeholder="ex: 07/2026" value={form.periodo} onChange={(e) => setForm({ ...form, periodo: e.target.value })} /></Field>
       </div>
-      <button type="submit" style={{ ...styles.button('primary'), marginTop: 12 }}>Criar contagem</button>
+      <button type="submit" disabled={busy} style={{ ...styles.button('primary'), marginTop: 12 }}>Iniciar Contagem</button>
     </form>
   );
 }
@@ -819,13 +845,14 @@ function ContagemTab({ perms, selected, onSelect, onGoRegister, refreshKey }) {
         </div>
       ) : (
         <div>
-          {canEdit && !showNew && <button style={styles.button('primary')} onClick={() => setShowNew(true)}>+ Nova contagem</button>}
+          {canEdit && !showNew && <button style={styles.button('primary')} onClick={() => setShowNew(true)}>+ Iniciar Contagem</button>}
           {showNew && <div style={{ marginTop: 12 }}><NovaContagemForm onCreated={(id) => { setShowNew(false); reload(); onSelect(id); }} /></div>}
           <table style={{ ...styles.table, marginTop: 16 }} className="bp-table-scroll">
-            <thead><tr><th style={styles.th}>Título</th><th style={styles.th}>Fornecedor</th><th style={styles.th}>Período</th><th style={styles.th}>Status</th><th style={styles.th}></th></tr></thead>
+            <thead><tr><th style={styles.th}>Data</th><th style={styles.th}>Título</th><th style={styles.th}>Fornecedor</th><th style={styles.th}>Período</th><th style={styles.th}>Status</th><th style={styles.th}></th></tr></thead>
             <tbody>
               {(contagens || []).map((c) => (
                 <tr key={c.id}>
+                  <td style={styles.td}>{formatDate(c.data)}</td>
                   <td style={styles.td}>{c.titulo}</td>
                   <td style={styles.td}>{c.fornecedor}</td>
                   <td style={styles.td}>{c.periodo}</td>
@@ -890,9 +917,16 @@ function ContagemMobileTab({ perms }) {
       <Field label="Contagem">
         <select style={styles.select} value={contagemId} onChange={(e) => { setContagemId(e.target.value); setSelecionado(null); }}>
           <option value="">Selecione...</option>
-          {(contagens || []).map((c) => <option key={c.id} value={c.id}>{c.titulo}</option>)}
+          {(contagens || []).map((c) => <option key={c.id} value={c.id}>{formatDate(c.data)} — {c.titulo}</option>)}
         </select>
       </Field>
+
+      {contagem && !contagem.isToday && (
+        <Banner tone="warning">
+          Essa contagem é do dia {formatDate(contagem.data)} — só é possível consultar o que já foi contado, sem
+          lançar novos valores.
+        </Banner>
+      )}
 
       {contagem && !selecionado && (
         <div style={{ marginTop: 16 }}>
@@ -918,7 +952,7 @@ function ContagemMobileTab({ perms }) {
             <div style={{ color: colors.textMuted, fontSize: 12 }}>total contado até agora</div>
           </div>
 
-          {perms.contagem_mobile?.edit && (
+          {perms.contagem_mobile?.edit && contagem.isToday && (
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
               <input style={{ ...styles.input, fontSize: 20, textAlign: 'center' }} type="number" inputMode="decimal" step="any"
                 placeholder={`+ valor em ${selecionado.unidade}`} value={valor} onChange={(e) => setValor(e.target.value)}
@@ -933,7 +967,7 @@ function ContagemMobileTab({ perms }) {
             {lancamentos.map((l) => (
               <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '8px 12px' }}>
                 <span>{formatNumber(l.valor)} {selecionado.unidade} <span style={{ color: colors.textMuted, fontSize: 12 }}>— {l.criadoPor}</span></span>
-                {perms.contagem_mobile?.edit && <button style={styles.button('danger')} onClick={() => remover(l.id)}>Remover</button>}
+                {perms.contagem_mobile?.edit && contagem.isToday && <button style={styles.button('danger')} onClick={() => remover(l.id)}>Remover</button>}
               </div>
             ))}
           </div>
