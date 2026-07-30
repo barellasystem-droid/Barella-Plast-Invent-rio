@@ -79,10 +79,13 @@ export function GlobalStyle() {
       @media (min-width: 901px) {
         .bp-menu-btn { display: none !important; }
       }
+      /* Tabelas largas (ex: Relatório de Contagem) ganham a própria barra de
+         rolagem horizontal em qualquer tamanho de tela, em vez de estourar
+         a página inteira — o cabeçalho/menu fica parado, só a tabela rola. */
+      table.bp-table-scroll { display: block; overflow-x: auto; white-space: nowrap; max-width: 100%; }
       @media (max-width: 600px) {
         .bp-content { padding: 14px !important; }
         .bp-form-grid { grid-template-columns: 1fr !important; }
-        table.bp-table-scroll { display: block; overflow-x: auto; white-space: nowrap; }
       }
       input, select, textarea, button { font-family: inherit; }
       table { font-variant-numeric: tabular-nums; }
