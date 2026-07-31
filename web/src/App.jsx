@@ -662,7 +662,7 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
               <thead>
                 <tr>
                   <th style={styles.th}>Código</th><th style={styles.th}>Matéria-prima</th><th style={styles.th}>Un.</th>
-                  <th style={styles.th}>Quantidade</th><th style={styles.th}>Virgem</th>
+                  <th style={styles.th}>Peça Produzida</th><th style={styles.th}>Virgem</th>
                   {ESTADOS.map((e) => <th key={e} style={styles.th}>{ESTADO_LABELS[e]}</th>)}
                   <th style={styles.th}>Total</th>
                 </tr>
