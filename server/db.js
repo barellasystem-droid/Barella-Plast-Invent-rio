@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { Pool } = require('pg');
 
 if (!process.env.DATABASE_URL) {
@@ -150,7 +151,89 @@ async function init() {
     -- que essa migração rodou (não temos como saber retroativamente quando
     -- cada uma foi de fato contada).
     ALTER TABLE contagens ADD COLUMN IF NOT EXISTS data DATE NOT NULL DEFAULT ((now() AT TIME ZONE 'America/Sao_Paulo')::date);
+
+    -- Estoque de produto, estoque virgem e quantidade por estado da mistura
+    -- passam a ser um snapshot por contagem (período), não mais um valor
+    -- único e sempre atual — cada contagem preserva sua própria "foto" desses
+    -- números, permitindo consultar o histórico depois. As tabelas antigas
+    -- (product_stock, raw_material_virgin_stock, blend_state_quantities)
+    -- ficam paradas, sem uso — ver migrateToContagemScoped() logo abaixo, que
+    -- copia o que existia nelas para uma contagem "base" na primeira vez que
+    -- essa versão roda.
+    CREATE TABLE IF NOT EXISTS contagem_product_stock (
+      contagem_id TEXT NOT NULL REFERENCES contagens(id) ON DELETE CASCADE,
+      product_code TEXT NOT NULL REFERENCES products(code) ON DELETE CASCADE,
+      quantidade DOUBLE PRECISION NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      updated_by TEXT,
+      PRIMARY KEY (contagem_id, product_code)
+    );
+
+    CREATE TABLE IF NOT EXISTS contagem_virgin_stock (
+      contagem_id TEXT NOT NULL REFERENCES contagens(id) ON DELETE CASCADE,
+      raw_material_code TEXT NOT NULL REFERENCES raw_materials(code) ON DELETE CASCADE,
+      quantidade DOUBLE PRECISION NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      updated_by TEXT,
+      PRIMARY KEY (contagem_id, raw_material_code)
+    );
+
+    CREATE TABLE IF NOT EXISTS contagem_blend_state_quantities (
+      contagem_id TEXT NOT NULL REFERENCES contagens(id) ON DELETE CASCADE,
+      blend_id TEXT NOT NULL REFERENCES blends(id) ON DELETE CASCADE,
+      estado TEXT NOT NULL CHECK (estado IN ('BORRA','MISTURA','GALHO','PECA','VARREDURA','MOIDO','SUCATA','MAQUINA')),
+      quantidade DOUBLE PRECISION NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      updated_by TEXT,
+      PRIMARY KEY (contagem_id, blend_id, estado)
+    );
   `);
+  await migrateToContagemScoped();
+}
+
+// Roda uma única vez (fica sem efeito depois que já existe pelo menos uma
+// linha em contagem_product_stock): copia os valores que estavam nas tabelas
+// globais antigas para dentro de uma contagem "Dados importados da planilha",
+// preservando o que já tinha sido cadastrado/importado antes desse recurso
+// existir, em vez de simplesmente perder esses números.
+async function migrateToContagemScoped() {
+  const { rows: already } = await pool.query('SELECT 1 FROM contagem_product_stock LIMIT 1');
+  if (already.length) return;
+  const { rows: oldStock } = await pool.query('SELECT COUNT(*)::int AS n FROM product_stock');
+  const { rows: oldVirgin } = await pool.query('SELECT COUNT(*)::int AS n FROM raw_material_virgin_stock');
+  const { rows: oldStates } = await pool.query('SELECT COUNT(*)::int AS n FROM blend_state_quantities');
+  if (!oldStock[0].n && !oldVirgin[0].n && !oldStates[0].n) return;
+
+  const baselineId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO contagens (id, titulo, status, data) VALUES ($1, 'Dados importados da planilha', 'FECHADA', ((now() AT TIME ZONE 'America/Sao_Paulo')::date))`,
+    [baselineId]
+  );
+  await pool.query(
+    `INSERT INTO contagem_product_stock (contagem_id, product_code, quantidade, updated_at, updated_by)
+     SELECT $1, product_code, quantidade, updated_at, updated_by FROM product_stock`,
+    [baselineId]
+  );
+  await pool.query(
+    `INSERT INTO contagem_virgin_stock (contagem_id, raw_material_code, quantidade, updated_at, updated_by)
+     SELECT $1, raw_material_code, quantidade, updated_at, updated_by FROM raw_material_virgin_stock`,
+    [baselineId]
+  );
+  await pool.query(
+    `INSERT INTO contagem_blend_state_quantities (contagem_id, blend_id, estado, quantidade, updated_at, updated_by)
+     SELECT $1, blend_id, estado, quantidade, updated_at, updated_by FROM blend_state_quantities`,
+    [baselineId]
+  );
+  // A contagem base também ganha contagem_itens (mesmo padrão de POST /contagens
+  // em server/routes/contagens.js) para poder aparecer normalmente no
+  // Relatório de Contagem, se alguém for conferir.
+  const { rows: materials } = await pool.query('SELECT code FROM raw_materials');
+  for (const m of materials) {
+    await pool.query(
+      'INSERT INTO contagem_itens (id, contagem_id, raw_material_code) VALUES ($1, $2, $3)',
+      [crypto.randomUUID(), baselineId, m.code]
+    );
+  }
 }
 
 // Roda uma vez por cold start (o módulo fica em cache); todo lugar que usa o

@@ -35,10 +35,7 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/raw-materials', require('./routes/rawMaterials'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/product-materials', require('./routes/productMaterials'));
-app.use('/api/product-stock', require('./routes/productStock'));
-app.use('/api/raw-material-virgin-stock', require('./routes/rawMaterialVirginStock'));
 app.use('/api/blends', require('./routes/blends'));
-app.use('/api/raw-material-summary', require('./routes/rawMaterialSummary'));
 app.use('/api/contagens', require('./routes/contagens'));
 
 // Handler final de erro — sempre responde JSON (o frontend não sabe parsear

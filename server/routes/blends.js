@@ -2,9 +2,13 @@ const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
 const { requireAuth, requireEdit, blockPending } = require('../auth');
-const { ESTADOS } = require('../constants');
 
 const router = express.Router();
+
+// Receita da mistura (nome + componentes/percentuais) — dado global, não
+// muda por contagem. A quantidade lançada por estado (Borra, Moído etc.) é
+// um retrato por contagem e vive em server/routes/contagens.js
+// (GET/PUT /api/contagens/:id/blends...), não aqui.
 
 // Substitui a lista de componentes da mistura por completo (mesmo padrão
 // "tudo ou nada" de products.js/replaceMaterials) — a ordem em que chegam no
@@ -30,24 +34,10 @@ router.get('/', requireAuth, blockPending, async (req, res) => {
     `SELECT id, blend_id AS "blendId", raw_material_code AS "rawMaterialCode", percentual, ordem
      FROM blend_components ORDER BY blend_id, ordem`
   );
-  const { rows: states } = await db.query(
-    'SELECT blend_id AS "blendId", estado, quantidade FROM blend_state_quantities'
-  );
   const componentsByBlend = {};
   for (const c of components) (componentsByBlend[c.blendId] = componentsByBlend[c.blendId] || []).push(c);
-  const statesByBlend = {};
-  for (const s of states) (statesByBlend[s.blendId] = statesByBlend[s.blendId] || {})[s.estado] = s.quantidade;
 
-  res.json(
-    blends.map((b) => ({
-      ...b,
-      components: componentsByBlend[b.id] || [],
-      estados: ESTADOS.reduce((acc, e) => {
-        acc[e] = (statesByBlend[b.id] || {})[e] || 0;
-        return acc;
-      }, {}),
-    }))
-  );
+  res.json(blends.map((b) => ({ ...b, components: componentsByBlend[b.id] || [] })));
 });
 
 router.post('/', requireAuth, requireEdit('explosao'), async (req, res) => {
@@ -76,22 +66,6 @@ router.put('/:id', requireAuth, requireEdit('explosao'), async (req, res) => {
 
 router.delete('/:id', requireAuth, requireEdit('explosao'), async (req, res) => {
   await db.query('DELETE FROM blends WHERE id = $1', [req.params.id]);
-  res.json({ ok: true });
-});
-
-router.put('/:id/estados/:estado', requireAuth, requireEdit('explosao'), async (req, res) => {
-  const estado = req.params.estado.toUpperCase();
-  if (!ESTADOS.includes(estado)) return res.status(400).json({ error: 'Estado inválido.' });
-  const value = Number((req.body || {}).quantidade);
-  if (Number.isNaN(value)) return res.status(400).json({ error: 'Quantidade inválida.' });
-  const { rows: blend } = await db.query('SELECT id FROM blends WHERE id = $1', [req.params.id]);
-  if (!blend.length) return res.status(404).json({ error: 'Mistura não encontrada.' });
-  await db.query(
-    `INSERT INTO blend_state_quantities (blend_id, estado, quantidade, updated_at, updated_by)
-     VALUES ($1, $2, $3, now(), $4)
-     ON CONFLICT (blend_id, estado) DO UPDATE SET quantidade = $3, updated_at = now(), updated_by = $4`,
-    [req.params.id, estado, value, req.user.username]
-  );
   res.json({ ok: true });
 });
 

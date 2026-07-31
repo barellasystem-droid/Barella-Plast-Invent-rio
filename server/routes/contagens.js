@@ -7,6 +7,7 @@ const { requireAuth, requireEdit, requireViewAny } = require('../auth');
 const { computeDivergence } = require('../calc');
 const { parseXlsxBuffer, parsePdfBuffer, normalizeCode } = require('../import-parsers');
 const { getRawMaterialSummary } = require('../materiaPrimaProduzida');
+const { ESTADOS } = require('../constants');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -56,6 +57,33 @@ router.post('/', requireAuth, requireEdit('contagem'), async (req, res) => {
         [crypto.randomUUID(), id, m.code]
       );
     }
+
+    // Começa com o "retrato" da contagem anterior mais recente (estoque de
+    // produto, estoque virgem, estados da mistura), para não obrigar a
+    // redigitar tudo de novo toda vez — o usuário ajusta só o que mudou
+    // nesse período. Sem contagem anterior, começa zerado.
+    const { rows: anterior } = await client.query(
+      `SELECT id FROM contagens WHERE id != $1 ORDER BY data DESC, created_at DESC LIMIT 1`,
+      [id]
+    );
+    if (anterior.length) {
+      const prevId = anterior[0].id;
+      await client.query(
+        `INSERT INTO contagem_product_stock (contagem_id, product_code, quantidade)
+         SELECT $1, product_code, quantidade FROM contagem_product_stock WHERE contagem_id = $2`,
+        [id, prevId]
+      );
+      await client.query(
+        `INSERT INTO contagem_virgin_stock (contagem_id, raw_material_code, quantidade)
+         SELECT $1, raw_material_code, quantidade FROM contagem_virgin_stock WHERE contagem_id = $2`,
+        [id, prevId]
+      );
+      await client.query(
+        `INSERT INTO contagem_blend_state_quantities (contagem_id, blend_id, estado, quantidade)
+         SELECT $1, blend_id, estado, quantidade FROM contagem_blend_state_quantities WHERE contagem_id = $2`,
+        [id, prevId]
+      );
+    }
   });
   res.status(201).json({ id });
 });
@@ -96,7 +124,7 @@ async function loadItens(contagemId) {
        ORDER BY ci.raw_material_code`,
       [contagemId]
     ),
-    getRawMaterialSummary(),
+    getRawMaterialSummary(contagemId),
   ]);
   const producaoByCode = new Map(producaoPorMaterial.map((p) => [p.code, p.total]));
 
@@ -279,6 +307,110 @@ router.get('/:id/export', requireAuth, viewContagem, async (req, res) => {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${contagemRows[0].titulo.replace(/[^a-z0-9]/gi, '_')}.xlsx"`);
   res.send(buffer);
+});
+
+// ------------------------------------------------------------ Matéria-Prima
+// Processada e Explosão, por contagem: estoque de produto, estoque virgem e
+// quantidade por estado da mistura são um retrato daquela contagem
+// específica (ver server/db.js) — por isso vivem aninhados aqui, e só podem
+// ser editados enquanto a contagem for a de hoje (mesma regra de
+// assertContagemDeHoje usada para lançamento/saldo do sistema/importação).
+
+router.get('/:id/product-stock', requireAuth, viewContagem, async (req, res) => {
+  const { rows } = await db.query(
+    'SELECT product_code AS "productCode", quantidade FROM contagem_product_stock WHERE contagem_id = $1',
+    [req.params.id]
+  );
+  res.json(rows);
+});
+
+router.put('/:id/product-stock/:productCode', requireAuth, requireEdit('materia_prima_produzida'), async (req, res) => {
+  await assertContagemDeHoje(req.params.id);
+  const value = Number((req.body || {}).quantidade);
+  if (Number.isNaN(value)) return res.status(400).json({ error: 'Quantidade inválida.' });
+  const { rows: prod } = await db.query('SELECT code FROM products WHERE code = $1', [req.params.productCode]);
+  if (!prod.length) return res.status(404).json({ error: 'Produto não encontrado.' });
+  await db.query(
+    `INSERT INTO contagem_product_stock (contagem_id, product_code, quantidade, updated_at, updated_by)
+     VALUES ($1, $2, $3, now(), $4)
+     ON CONFLICT (contagem_id, product_code) DO UPDATE SET quantidade = $3, updated_at = now(), updated_by = $4`,
+    [req.params.id, req.params.productCode, value, req.user.username]
+  );
+  res.json({ ok: true });
+});
+
+router.get('/:id/virgin-stock', requireAuth, viewContagem, async (req, res) => {
+  const { rows } = await db.query(
+    'SELECT raw_material_code AS "rawMaterialCode", quantidade FROM contagem_virgin_stock WHERE contagem_id = $1',
+    [req.params.id]
+  );
+  res.json(rows);
+});
+
+router.put('/:id/virgin-stock/:rawMaterialCode', requireAuth, requireEdit('materia_prima_produzida'), async (req, res) => {
+  await assertContagemDeHoje(req.params.id);
+  const value = Number((req.body || {}).quantidade);
+  if (Number.isNaN(value)) return res.status(400).json({ error: 'Quantidade inválida.' });
+  const { rows: mat } = await db.query('SELECT code FROM raw_materials WHERE code = $1', [req.params.rawMaterialCode]);
+  if (!mat.length) return res.status(404).json({ error: 'Matéria-prima não encontrada.' });
+  await db.query(
+    `INSERT INTO contagem_virgin_stock (contagem_id, raw_material_code, quantidade, updated_at, updated_by)
+     VALUES ($1, $2, $3, now(), $4)
+     ON CONFLICT (contagem_id, raw_material_code) DO UPDATE SET quantidade = $3, updated_at = now(), updated_by = $4`,
+    [req.params.id, req.params.rawMaterialCode, value, req.user.username]
+  );
+  res.json({ ok: true });
+});
+
+router.get('/:id/summary', requireAuth, viewContagem, async (req, res) => {
+  const itens = await getRawMaterialSummary(req.params.id);
+  res.json({ estados: ESTADOS, itens });
+});
+
+// Receita da mistura (nome/componentes/percentuais) continua global — só a
+// quantidade lançada por estado é presa a essa contagem.
+router.get('/:id/blends', requireAuth, viewContagem, async (req, res) => {
+  const { rows: blends } = await db.query('SELECT id, nome FROM blends ORDER BY nome');
+  const { rows: components } = await db.query(
+    `SELECT id, blend_id AS "blendId", raw_material_code AS "rawMaterialCode", percentual, ordem
+     FROM blend_components ORDER BY blend_id, ordem`
+  );
+  const { rows: states } = await db.query(
+    'SELECT blend_id AS "blendId", estado, quantidade FROM contagem_blend_state_quantities WHERE contagem_id = $1',
+    [req.params.id]
+  );
+  const componentsByBlend = {};
+  for (const c of components) (componentsByBlend[c.blendId] = componentsByBlend[c.blendId] || []).push(c);
+  const statesByBlend = {};
+  for (const s of states) (statesByBlend[s.blendId] = statesByBlend[s.blendId] || {})[s.estado] = s.quantidade;
+
+  res.json(
+    blends.map((b) => ({
+      ...b,
+      components: componentsByBlend[b.id] || [],
+      estados: ESTADOS.reduce((acc, e) => {
+        acc[e] = (statesByBlend[b.id] || {})[e] || 0;
+        return acc;
+      }, {}),
+    }))
+  );
+});
+
+router.put('/:id/blends/:blendId/estados/:estado', requireAuth, requireEdit('explosao'), async (req, res) => {
+  await assertContagemDeHoje(req.params.id);
+  const estado = req.params.estado.toUpperCase();
+  if (!ESTADOS.includes(estado)) return res.status(400).json({ error: 'Estado inválido.' });
+  const value = Number((req.body || {}).quantidade);
+  if (Number.isNaN(value)) return res.status(400).json({ error: 'Quantidade inválida.' });
+  const { rows: blend } = await db.query('SELECT id FROM blends WHERE id = $1', [req.params.blendId]);
+  if (!blend.length) return res.status(404).json({ error: 'Mistura não encontrada.' });
+  await db.query(
+    `INSERT INTO contagem_blend_state_quantities (contagem_id, blend_id, estado, quantidade, updated_at, updated_by)
+     VALUES ($1, $2, $3, $4, now(), $5)
+     ON CONFLICT (contagem_id, blend_id, estado) DO UPDATE SET quantidade = $4, updated_at = now(), updated_by = $5`,
+    [req.params.id, req.params.blendId, estado, value, req.user.username]
+  );
+  res.json({ ok: true });
 });
 
 module.exports = router;

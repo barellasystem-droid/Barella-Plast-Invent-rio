@@ -69,23 +69,11 @@ export const api = {
   productMaterials: {
     list: () => request('GET', '/product-materials'),
   },
-  productStock: {
-    list: () => request('GET', '/product-stock'),
-    set: (code, quantidade) => request('PUT', `/product-stock/${encodeURIComponent(code)}`, { quantidade }),
-  },
-  rawMaterialVirginStock: {
-    list: () => request('GET', '/raw-material-virgin-stock'),
-    set: (code, quantidade) => request('PUT', `/raw-material-virgin-stock/${encodeURIComponent(code)}`, { quantidade }),
-  },
   blends: {
     list: () => request('GET', '/blends'),
     create: (b) => request('POST', '/blends', b),
     update: (id, b) => request('PUT', `/blends/${id}`, b),
     remove: (id) => request('DELETE', `/blends/${id}`),
-    setEstado: (id, estado, quantidade) => request('PUT', `/blends/${id}/estados/${estado}`, { quantidade }),
-  },
-  rawMaterialSummary: {
-    get: () => request('GET', '/raw-material-summary'),
   },
   contagens: {
     list: () => request('GET', '/contagens'),
@@ -97,6 +85,20 @@ export const api = {
     lancamentos: (id, code) => request('GET', `/contagens/${id}/itens/${encodeURIComponent(code)}/lancamentos`),
     addLancamento: (id, code, valor) => request('POST', `/contagens/${id}/itens/${encodeURIComponent(code)}/lancamentos`, { valor }),
     removeLancamento: (id, code, lancamentoId) => request('DELETE', `/contagens/${id}/itens/${encodeURIComponent(code)}/lancamentos/${lancamentoId}`),
+    // Matéria Prima Processada e Explosão, por contagem (snapshot do período):
+    productStock: {
+      list: (contagemId) => request('GET', `/contagens/${contagemId}/product-stock`),
+      set: (contagemId, code, quantidade) => request('PUT', `/contagens/${contagemId}/product-stock/${encodeURIComponent(code)}`, { quantidade }),
+    },
+    virginStock: {
+      list: (contagemId) => request('GET', `/contagens/${contagemId}/virgin-stock`),
+      set: (contagemId, code, quantidade) => request('PUT', `/contagens/${contagemId}/virgin-stock/${encodeURIComponent(code)}`, { quantidade }),
+    },
+    summary: (contagemId) => request('GET', `/contagens/${contagemId}/summary`),
+    blends: {
+      list: (contagemId) => request('GET', `/contagens/${contagemId}/blends`),
+      setEstado: (contagemId, blendId, estado, quantidade) => request('PUT', `/contagens/${contagemId}/blends/${blendId}/estados/${estado}`, { quantidade }),
+    },
     importFile: (id, file) => {
       const form = new FormData();
       form.append('file', file);

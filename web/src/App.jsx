@@ -381,7 +381,7 @@ function CadastrosTab({ perms, pendingRegister, onRegistered }) {
 
 // --------------------------------------------------------------- Explosão
 
-function BlendCard({ blend, rawMaterials, canEdit, onChanged }) {
+function BlendCard({ blend, rawMaterials, canEdit, podeEditarEstados, contagemId, onChanged }) {
   const [nome, setNome] = useState(blend.nome);
   const [components, setComponents] = useState(blend.components.length ? blend.components : [{ rawMaterialCode: '', percentual: null }]);
   const [estados, setEstados] = useState(blend.estados);
@@ -409,7 +409,7 @@ function BlendCard({ blend, rawMaterials, canEdit, onChanged }) {
 
   async function saveEstado(estado, value) {
     setEstados({ ...estados, [estado]: value });
-    if (blend.id) await api.blends.setEstado(blend.id, estado, value);
+    if (blend.id && contagemId) await api.contagens.blends.setEstado(contagemId, blend.id, estado, value);
   }
 
   return (
@@ -446,7 +446,7 @@ function BlendCard({ blend, rawMaterials, canEdit, onChanged }) {
               style={styles.input}
               type="number"
               step="any"
-              disabled={!canEdit || !blend.id}
+              disabled={!podeEditarEstados || !blend.id}
               value={estados[e] || 0}
               onChange={(ev) => setEstados({ ...estados, [e]: ev.target.value })}
               onBlur={(ev) => saveEstado(e, Number(ev.target.value) || 0)}
@@ -459,33 +459,77 @@ function BlendCard({ blend, rawMaterials, canEdit, onChanged }) {
   );
 }
 
+// Contagens são periódicas e viram histórico — estoque de produto, estoque
+// virgem e quantidade por estado da mistura são um retrato de UMA contagem
+// específica (ver server/db.js), por isso tanto Explosão quanto Matéria
+// Prima Processada exigem escolher a contagem antes de mostrar/editar esses
+// números, do mesmo jeito que a tela de Contagem pelo celular já faz.
+function ContagemSelector({ contagemId, onChange, contagens }) {
+  return (
+    <Field label="Contagem">
+      <select style={styles.select} value={contagemId} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Selecione uma contagem...</option>
+        {(contagens || []).map((c) => (
+          <option key={c.id} value={c.id}>
+            {formatDate(c.data)} — {c.titulo}{c.fornecedor ? ` (${c.fornecedor})` : ''} — {c.status}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
 function ExplosaoTab({ perms, onNavigate }) {
-  const [blends, reload] = useAsyncList(api.blends.list, []);
+  const [contagens] = useAsyncList(api.contagens.list, []);
+  const [contagemId, setContagemId] = useState('');
+  const [contagem, setContagem] = useState(null);
+  const [blends, reload] = useAsyncList(() => (contagemId ? api.contagens.blends.list(contagemId) : Promise.resolve([])), [contagemId]);
   const [rawMaterials] = useAsyncList(api.rawMaterials.list, []);
   const [showNew, setShowNew] = useState(false);
   const canEdit = perms.explosao?.edit;
+
+  useEffect(() => { if (contagemId) api.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
+  const podeEditar = canEdit && contagem?.isToday;
 
   return (
     <div>
       <h1 style={styles.h1}>Explosão — misturas e percentuais</h1>
       {perms.contagem?.view && (
         <Banner tone="default">
-          Tudo que for lançado aqui (por estado) é somado automaticamente ao Saldo do Inventário do Relatório
-          de Contagem, junto com a contagem física do celular.{' '}
+          A quantidade lançada aqui (por estado) é somada automaticamente ao Saldo do Inventário da contagem
+          selecionada, junto com a contagem física do celular.{' '}
           <button type="button" onClick={() => onNavigate('contagem')} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontWeight: 600, padding: 0 }}>
             Ver Relatório de Contagem →
           </button>
         </Banner>
       )}
-      {canEdit && !showNew && <button style={styles.button('primary')} onClick={() => setShowNew(true)}>+ Nova mistura</button>}
-      {showNew && (
-        <div style={{ marginTop: 12 }}>
-          <BlendCard blend={{ id: null, nome: '', components: [], estados: {} }} rawMaterials={rawMaterials} canEdit={canEdit} onChanged={() => { setShowNew(false); reload(); }} />
-        </div>
-      )}
-      <div style={{ marginTop: 16, display: 'grid', gap: 16 }}>
-        {(blends || []).map((b) => <BlendCard key={b.id} blend={b} rawMaterials={rawMaterials} canEdit={canEdit} onChanged={reload} />)}
+
+      <div style={styles.card}>
+        <ContagemSelector contagemId={contagemId} onChange={setContagemId} contagens={contagens} />
       </div>
+
+      {!contagemId && <p style={{ color: colors.textMuted }}>Selecione uma contagem para ver ou lançar as quantidades por estado.</p>}
+
+      {contagemId && (
+        <>
+          {contagem && !contagem.isToday && (
+            <Banner tone="warning">
+              Essa contagem é do dia {formatDate(contagem.data)} — os componentes/percentuais das misturas
+              continuam editáveis (são a receita, não mudam por período), mas as quantidades por estado
+              dessa contagem são somente consulta.
+            </Banner>
+          )}
+          {canEdit && !showNew && <button style={styles.button('primary')} onClick={() => setShowNew(true)}>+ Nova mistura</button>}
+          {showNew && (
+            <div style={{ marginTop: 12 }}>
+              <BlendCard blend={{ id: null, nome: '', components: [], estados: {} }} rawMaterials={rawMaterials} canEdit={canEdit} podeEditarEstados={podeEditar} contagemId={contagemId} onChanged={() => { setShowNew(false); reload(); }} />
+            </div>
+          )}
+          <div style={{ marginTop: 16, display: 'grid', gap: 16 }}>
+            {(blends || []).map((b) => <BlendCard key={b.id} blend={b} rawMaterials={rawMaterials} canEdit={canEdit} podeEditarEstados={podeEditar} contagemId={contagemId} onChanged={reload} />)}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -493,13 +537,19 @@ function ExplosaoTab({ perms, onNavigate }) {
 // ---------------------------------------------------- Matéria-Prima Produzida
 
 function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
+  const [contagens] = useAsyncList(api.contagens.list, []);
+  const [contagemId, setContagemId] = useState('');
+  const [contagem, setContagem] = useState(null);
   const [products] = useAsyncList(api.products.list, []);
-  const [stock, reloadStock] = useAsyncList(api.productStock.list, []);
+  const [stock, reloadStock] = useAsyncList(() => (contagemId ? api.contagens.productStock.list(contagemId) : Promise.resolve([])), [contagemId]);
   const [rawMaterials] = useAsyncList(api.rawMaterials.list, []);
-  const [virginStock, reloadVirgin] = useAsyncList(api.rawMaterialVirginStock.list, []);
-  const [summary, reloadSummary] = useAsyncList(api.rawMaterialSummary.get, []);
+  const [virginStock, reloadVirgin] = useAsyncList(() => (contagemId ? api.contagens.virginStock.list(contagemId) : Promise.resolve([])), [contagemId]);
+  const [summary, reloadSummary] = useAsyncList(() => (contagemId ? api.contagens.summary(contagemId) : Promise.resolve(null)), [contagemId]);
   const [filter, setFilter] = useState('');
   const canEdit = perms.materia_prima_produzida?.edit;
+  const podeEditar = canEdit && contagem?.isToday;
+
+  useEffect(() => { if (contagemId) api.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
 
   function refreshAll() { reloadStock(); reloadVirgin(); reloadSummary(); }
 
@@ -514,7 +564,7 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
       <p style={{ color: colors.textMuted, marginTop: -8 }}>Informe a quantidade em estoque de cada produto — o sistema recalcula quanto de matéria-prima já está produzida.</p>
       {perms.contagem?.view && (
         <Banner tone="default">
-          O Total desta tela é somado automaticamente ao Saldo do Inventário do Relatório de Contagem, junto
+          O Total desta tela é somado automaticamente ao Saldo do Inventário da contagem selecionada, junto
           com a contagem física do celular.{' '}
           <button type="button" onClick={() => onNavigate('contagem')} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontWeight: 600, padding: 0 }}>
             Ver Relatório de Contagem →
@@ -523,83 +573,103 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
       )}
 
       <div style={styles.card}>
-        <h2 style={styles.h2}>Estoque de produtos</h2>
-        <input style={{ ...styles.input, maxWidth: 300, marginBottom: 12 }} placeholder="Buscar produto..." value={filter} onChange={(e) => setFilter(e.target.value)} />
-        <table style={styles.table} className="bp-table-scroll">
-          <thead><tr><th style={styles.th}>Código</th><th style={styles.th}>Produto</th><th style={styles.th}>Quantidade em estoque</th></tr></thead>
-          <tbody>
-            {filteredProducts.map((p) => (
-              <tr key={p.code}>
-                <td style={styles.td}>{p.code}</td>
-                <td style={styles.td}>{p.nome}</td>
-                <td style={styles.td}>
-                  <input
-                    style={{ ...styles.input, width: 140 }}
-                    type="number" step="any"
-                    disabled={!canEdit}
-                    defaultValue={stockByCode[p.code] || 0}
-                    onBlur={async (e) => { await api.productStock.set(p.code, Number(e.target.value) || 0); refreshAll(); }}
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ContagemSelector contagemId={contagemId} onChange={setContagemId} contagens={contagens} />
+        <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: 0 }}>
+          Uma contagem nova já começa com os valores da contagem anterior mais recente — ajuste só o que mudou.
+        </p>
       </div>
 
-      <div style={styles.card}>
-        <h2 style={styles.h2}>Estoque virgem por matéria-prima</h2>
-        <table style={styles.table} className="bp-table-scroll">
-          <thead><tr><th style={styles.th}>Código</th><th style={styles.th}>Matéria-prima</th><th style={styles.th}>Quant. virgem</th></tr></thead>
-          <tbody>
-            {(rawMaterials || []).map((m) => (
-              <tr key={m.code}>
-                <td style={styles.td}>{m.code}</td>
-                <td style={styles.td}>{m.nome}</td>
-                <td style={styles.td}>
-                  <input
-                    style={{ ...styles.input, width: 140 }}
-                    type="number" step="any"
-                    disabled={!canEdit}
-                    defaultValue={virginByCode[m.code] || 0}
-                    onBlur={async (e) => { await api.rawMaterialVirginStock.set(m.code, Number(e.target.value) || 0); refreshAll(); }}
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {!contagemId && <p style={{ color: colors.textMuted }}>Selecione uma contagem para ver ou informar os dados.</p>}
 
-      <div style={styles.card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={styles.h2}>Total por matéria-prima já produzida</h2>
-          <button style={styles.button('ghost')} onClick={refreshAll}>Recalcular</button>
-        </div>
-        <table style={styles.table} className="bp-table-scroll">
-          <thead>
-            <tr>
-              <th style={styles.th}>Código</th><th style={styles.th}>Matéria-prima</th><th style={styles.th}>Un.</th>
-              <th style={styles.th}>Quantidade</th><th style={styles.th}>Virgem</th>
-              {ESTADOS.map((e) => <th key={e} style={styles.th}>{ESTADO_LABELS[e]}</th>)}
-              <th style={styles.th}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(summary?.itens || []).map((i) => (
-              <tr key={i.code}>
-                <td style={styles.td}>{i.code}</td>
-                <td style={styles.td}>{i.nome}</td>
-                <td style={styles.td}>{i.unidade}</td>
-                <td style={styles.td}>{formatNumber(i.quantidade)}</td>
-                <td style={styles.td}>{formatNumber(i.virgem)}</td>
-                {ESTADOS.map((e) => <td key={e} style={styles.td}>{formatNumber(i[e])}</td>)}
-                <td style={{ ...styles.td, fontWeight: 700 }}>{formatNumber(i.total)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {contagemId && (
+        <>
+          {contagem && !contagem.isToday && (
+            <Banner tone="warning">
+              Essa contagem é do dia {formatDate(contagem.data)} — só é possível consultar os valores dessa
+              contagem, sem editar.
+            </Banner>
+          )}
+
+          <div style={styles.card}>
+            <h2 style={styles.h2}>Estoque de produtos</h2>
+            <input style={{ ...styles.input, maxWidth: 300, marginBottom: 12 }} placeholder="Buscar produto..." value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <table style={styles.table} className="bp-table-scroll">
+              <thead><tr><th style={styles.th}>Código</th><th style={styles.th}>Produto</th><th style={styles.th}>Quantidade em estoque</th></tr></thead>
+              <tbody>
+                {filteredProducts.map((p) => (
+                  <tr key={p.code}>
+                    <td style={styles.td}>{p.code}</td>
+                    <td style={styles.td}>{p.nome}</td>
+                    <td style={styles.td}>
+                      <input
+                        style={{ ...styles.input, width: 140 }}
+                        type="number" step="any"
+                        disabled={!podeEditar}
+                        defaultValue={stockByCode[p.code] || 0}
+                        onBlur={async (e) => { await api.contagens.productStock.set(contagemId, p.code, Number(e.target.value) || 0); refreshAll(); }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={styles.card}>
+            <h2 style={styles.h2}>Estoque virgem por matéria-prima</h2>
+            <table style={styles.table} className="bp-table-scroll">
+              <thead><tr><th style={styles.th}>Código</th><th style={styles.th}>Matéria-prima</th><th style={styles.th}>Quant. virgem</th></tr></thead>
+              <tbody>
+                {(rawMaterials || []).map((m) => (
+                  <tr key={m.code}>
+                    <td style={styles.td}>{m.code}</td>
+                    <td style={styles.td}>{m.nome}</td>
+                    <td style={styles.td}>
+                      <input
+                        style={{ ...styles.input, width: 140 }}
+                        type="number" step="any"
+                        disabled={!podeEditar}
+                        defaultValue={virginByCode[m.code] || 0}
+                        onBlur={async (e) => { await api.contagens.virginStock.set(contagemId, m.code, Number(e.target.value) || 0); refreshAll(); }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={styles.card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={styles.h2}>Total por matéria-prima já produzida</h2>
+              <button style={styles.button('ghost')} onClick={refreshAll}>Recalcular</button>
+            </div>
+            <table style={styles.table} className="bp-table-scroll">
+              <thead>
+                <tr>
+                  <th style={styles.th}>Código</th><th style={styles.th}>Matéria-prima</th><th style={styles.th}>Un.</th>
+                  <th style={styles.th}>Quantidade</th><th style={styles.th}>Virgem</th>
+                  {ESTADOS.map((e) => <th key={e} style={styles.th}>{ESTADO_LABELS[e]}</th>)}
+                  <th style={styles.th}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(summary?.itens || []).map((i) => (
+                  <tr key={i.code}>
+                    <td style={styles.td}>{i.code}</td>
+                    <td style={styles.td}>{i.nome}</td>
+                    <td style={styles.td}>{i.unidade}</td>
+                    <td style={styles.td}>{formatNumber(i.quantidade)}</td>
+                    <td style={styles.td}>{formatNumber(i.virgem)}</td>
+                    {ESTADOS.map((e) => <td key={e} style={styles.td}>{formatNumber(i[e])}</td>)}
+                    <td style={{ ...styles.td, fontWeight: 700 }}>{formatNumber(i.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

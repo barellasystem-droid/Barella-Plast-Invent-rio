@@ -1,21 +1,22 @@
 // Cálculo de "quanto de cada matéria-prima já está produzida" (estoque de
 // produto x BOM, virgem, e os estados da Explosão) — extraído em módulo
-// próprio porque server/routes/rawMaterialSummary.js (tela Matéria-Prima
-// Produzida) e server/routes/contagens.js (Saldo do Inventário do Relatório
-// de Contagem, que soma esse total junto com o que foi contado no celular)
-// usam exatamente a mesma conta.
+// próprio porque server/routes/contagens.js usa exatamente a mesma conta
+// (é o "materiaPrimaProduzida" somado ao Saldo do Inventário). Sempre
+// calculado para UMA contagem específica: estoque de produto, estoque virgem
+// e quantidade por estado da mistura são um snapshot por contagem (ver
+// server/db.js), não um valor global único.
 const db = require('./db');
 const { computeRawMaterialSummary } = require('./calc');
 
-async function getRawMaterialSummary() {
+async function getRawMaterialSummary(contagemId) {
   const [rawMaterials, productMaterials, productStock, virginStock, blendsRes, componentsRes, statesRes] = await Promise.all([
     db.query('SELECT code, nome, unidade FROM raw_materials'),
     db.query('SELECT product_code AS "productCode", raw_material_code AS "rawMaterialCode", consumo_unitario AS "consumoUnitario" FROM product_materials'),
-    db.query('SELECT product_code AS "productCode", quantidade FROM product_stock'),
-    db.query('SELECT raw_material_code AS "rawMaterialCode", quantidade FROM raw_material_virgin_stock'),
+    db.query('SELECT product_code AS "productCode", quantidade FROM contagem_product_stock WHERE contagem_id = $1', [contagemId]),
+    db.query('SELECT raw_material_code AS "rawMaterialCode", quantidade FROM contagem_virgin_stock WHERE contagem_id = $1', [contagemId]),
     db.query('SELECT id FROM blends'),
     db.query('SELECT blend_id AS "blendId", raw_material_code AS "rawMaterialCode", percentual, ordem FROM blend_components ORDER BY blend_id, ordem'),
-    db.query('SELECT blend_id AS "blendId", estado, quantidade FROM blend_state_quantities'),
+    db.query('SELECT blend_id AS "blendId", estado, quantidade FROM contagem_blend_state_quantities WHERE contagem_id = $1', [contagemId]),
   ]);
 
   const statesByBlend = {};
