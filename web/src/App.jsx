@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api, getToken, setToken } from './api.js';
 import { styles, colors, GlobalStyle } from './styles.jsx';
-import { NAV_ITEMS, ESTADOS, ESTADO_LABELS, UNIDADES, ROLES, ROLE_LABELS, condicaoTone, formatNumber, formatPercent, formatDate, hojeBrasilia } from './constants.js';
+import { NAV_ITEMS, ESTADOS, ESTADO_LABELS, UNIDADES, ROLES, ROLE_LABELS, STATUS_LABELS, statusTone, condicaoTone, formatNumber, formatPercent, formatDate, hojeBrasilia } from './constants.js';
 
 // ---------------------------------------------------------------- shared UI
 
@@ -489,7 +489,8 @@ function ExplosaoTab({ perms, onNavigate }) {
   const canEdit = perms.explosao?.edit;
 
   useEffect(() => { if (contagemId) api.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
-  const podeEditar = canEdit && contagem?.isToday;
+  const finalizada = contagem?.status === 'FINALIZADA';
+  const podeEditar = canEdit && contagem?.isToday && !finalizada;
 
   return (
     <div>
@@ -512,7 +513,10 @@ function ExplosaoTab({ perms, onNavigate }) {
 
       {contagemId && (
         <>
-          {contagem && !contagem.isToday && (
+          {contagem && finalizada && (
+            <Banner tone="success">Essa contagem foi finalizada — as quantidades por estado são somente consulta.</Banner>
+          )}
+          {contagem && !finalizada && !contagem.isToday && (
             <Banner tone="warning">
               Essa contagem é do dia {formatDate(contagem.data)} — os componentes/percentuais das misturas
               continuam editáveis (são a receita, não mudam por período), mas as quantidades por estado
@@ -547,7 +551,8 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
   const [summary, reloadSummary] = useAsyncList(() => (contagemId ? api.contagens.summary(contagemId) : Promise.resolve(null)), [contagemId]);
   const [filter, setFilter] = useState('');
   const canEdit = perms.materia_prima_produzida?.edit;
-  const podeEditar = canEdit && contagem?.isToday;
+  const finalizada = contagem?.status === 'FINALIZADA';
+  const podeEditar = canEdit && contagem?.isToday && !finalizada;
 
   useEffect(() => { if (contagemId) api.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
 
@@ -583,7 +588,10 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
 
       {contagemId && (
         <>
-          {contagem && !contagem.isToday && (
+          {contagem && finalizada && (
+            <Banner tone="success">Essa contagem foi finalizada — só é possível consultar os valores dessa contagem.</Banner>
+          )}
+          {contagem && !finalizada && !contagem.isToday && (
             <Banner tone="warning">
               Essa contagem é do dia {formatDate(contagem.data)} — só é possível consultar os valores dessa
               contagem, sem editar.
@@ -772,11 +780,12 @@ function ImportPendentes({ contagemId, pendentes, onResolved, onGoRegister }) {
   );
 }
 
-function ContagemDetail({ id, perms, onGoRegister, refreshKey }) {
+function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
   const [contagem, setContagem] = useState(null);
   const [error, setError] = useState('');
   const [importResult, setImportResult] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
   const canEditReport = perms.contagem?.edit;
 
   const load = useCallback(() => {
@@ -806,37 +815,62 @@ function ContagemDetail({ id, perms, onGoRegister, refreshKey }) {
     }
   }
 
+  async function changeStatus(status) {
+    setChangingStatus(true);
+    setError('');
+    try {
+      await api.contagens.update(id, { status });
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setChangingStatus(false);
+    }
+  }
+
   if (error) return <Banner tone="danger">{error}</Banner>;
   if (!contagem) return <p>Carregando...</p>;
 
-  const podeEditar = canEditReport && contagem.isToday;
+  const finalizada = contagem.status === 'FINALIZADA';
+  const podeEditar = canEditReport && contagem.isToday && !finalizada;
 
   return (
     <div>
       <h2 style={styles.h2}>
         {contagem.titulo} {contagem.fornecedor ? `— ${contagem.fornecedor}` : ''}
-        <span style={{ fontSize: 13, color: colors.textMuted, fontWeight: 400 }}> · {formatDate(contagem.data)}</span>
+        <span style={{ fontSize: 13, color: colors.textMuted, fontWeight: 400 }}> · {formatDate(contagem.data)}</span>{' '}
+        <Badge tone={statusTone(contagem.status)}>{STATUS_LABELS[contagem.status] || contagem.status}</Badge>
       </h2>
-      {!contagem.isToday && (
+
+      {finalizada && (
+        <Banner tone="success">
+          Essa contagem foi finalizada — só é possível consultar.{' '}
+          {isAdmin && (
+            <button type="button" disabled={changingStatus} onClick={() => changeStatus('ABERTA')} style={{ background: 'none', border: 'none', color: colors.success, cursor: 'pointer', fontWeight: 600, padding: 0, textDecoration: 'underline' }}>
+              Reabrir contagem
+            </button>
+          )}
+        </Banner>
+      )}
+      {!finalizada && !contagem.isToday && (
         <Banner tone="warning">
           Essa contagem é do dia {formatDate(contagem.data)} — só é possível consultar. Contagem só pode ser
           lançada/editada no dia em que foi iniciada.
         </Banner>
       )}
-      {canEditReport && contagem.isToday && (
-        <div style={{ ...styles.card, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+
+      <div style={{ ...styles.card, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        {canEditReport && podeEditar && (
           <div>
             <label style={styles.label}>Importar Saldo do Sistema (XLS ou PDF)</label>
             <input type="file" accept=".xls,.xlsx,.pdf" onChange={handleFile} disabled={uploading} />
           </div>
-          <button style={styles.button('ghost')} onClick={() => api.contagens.exportXlsx(id, contagem.titulo + '.xlsx')}>Exportar Excel</button>
-        </div>
-      )}
-      {!contagem.isToday && (
-        <div style={{ ...styles.card, display: 'flex', justifyContent: 'flex-end' }}>
-          <button style={styles.button('ghost')} onClick={() => api.contagens.exportXlsx(id, contagem.titulo + '.xlsx')}>Exportar Excel</button>
-        </div>
-      )}
+        )}
+        <button style={styles.button('ghost')} onClick={() => api.contagens.exportXlsx(id, contagem.titulo + '.xlsx')}>Exportar Excel</button>
+        {canEditReport && podeEditar && (
+          <button style={styles.button('primary')} disabled={changingStatus} onClick={() => changeStatus('FINALIZADA')}>Finalizar contagem</button>
+        )}
+      </div>
       {importResult && (
         <Banner tone="success" onClose={() => setImportResult(null)}>
           {importResult.matchedCount} item(ns) atualizado(s) do arquivo.
@@ -923,7 +957,7 @@ function NovaContagemForm({ onCreated }) {
   );
 }
 
-function ContagemTab({ perms, selected, onSelect, onGoRegister, refreshKey }) {
+function ContagemTab({ perms, isAdmin, selected, onSelect, onGoRegister, refreshKey }) {
   const [contagens, reload] = useAsyncList(api.contagens.list, []);
   const [showNew, setShowNew] = useState(false);
   const canEdit = perms.contagem?.edit;
@@ -934,7 +968,7 @@ function ContagemTab({ perms, selected, onSelect, onGoRegister, refreshKey }) {
       {selected ? (
         <div>
           <button style={{ ...styles.button('ghost'), marginBottom: 12 }} onClick={() => onSelect(null)}>← Voltar para a lista</button>
-          <ContagemDetail id={selected} perms={perms} onGoRegister={onGoRegister} refreshKey={refreshKey} />
+          <ContagemDetail id={selected} perms={perms} isAdmin={isAdmin} onGoRegister={onGoRegister} refreshKey={refreshKey} />
         </div>
       ) : (
         <div>
@@ -949,7 +983,7 @@ function ContagemTab({ perms, selected, onSelect, onGoRegister, refreshKey }) {
                   <td style={styles.td}>{c.titulo}</td>
                   <td style={styles.td}>{c.fornecedor}</td>
                   <td style={styles.td}>{c.periodo}</td>
-                  <td style={styles.td}><Badge>{c.status}</Badge></td>
+                  <td style={styles.td}><Badge tone={statusTone(c.status)}>{STATUS_LABELS[c.status] || c.status}</Badge></td>
                   <td style={styles.td}><button style={styles.button('ghost')} onClick={() => onSelect(c.id)}>Abrir</button></td>
                 </tr>
               ))}
@@ -1001,6 +1035,8 @@ function ContagemMobileTab({ perms }) {
   }
 
   const itensFiltrados = contagem ? contagem.itens.filter((i) => !busca || i.rawMaterialCode.toLowerCase().includes(busca.toLowerCase()) || i.nome.toLowerCase().includes(busca.toLowerCase())) : [];
+  const finalizada = contagem?.status === 'FINALIZADA';
+  const podeContar = perms.contagem_mobile?.edit && contagem?.isToday && !finalizada;
 
   return (
     <div style={styles.mobileScreen}>
@@ -1010,11 +1046,14 @@ function ContagemMobileTab({ perms }) {
       <Field label="Contagem">
         <select style={styles.select} value={contagemId} onChange={(e) => { setContagemId(e.target.value); setSelecionado(null); }}>
           <option value="">Selecione...</option>
-          {(contagens || []).map((c) => <option key={c.id} value={c.id}>{formatDate(c.data)} — {c.titulo}</option>)}
+          {(contagens || []).map((c) => <option key={c.id} value={c.id}>{formatDate(c.data)} — {c.titulo} — {STATUS_LABELS[c.status] || c.status}</option>)}
         </select>
       </Field>
 
-      {contagem && !contagem.isToday && (
+      {contagem && finalizada && (
+        <Banner tone="success">Essa contagem foi finalizada — só é possível consultar o que já foi contado.</Banner>
+      )}
+      {contagem && !finalizada && !contagem.isToday && (
         <Banner tone="warning">
           Essa contagem é do dia {formatDate(contagem.data)} — só é possível consultar o que já foi contado, sem
           lançar novos valores.
@@ -1048,7 +1087,7 @@ function ContagemMobileTab({ perms }) {
             </div>
           </div>
 
-          {perms.contagem_mobile?.edit && contagem.isToday && (
+          {podeContar && (
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
               <input style={{ ...styles.input, fontSize: 20, textAlign: 'center' }} type="number" inputMode="decimal" step="any"
                 placeholder={`+ valor em ${selecionado.unidade}`} value={valor} onChange={(e) => setValor(e.target.value)}
@@ -1063,7 +1102,7 @@ function ContagemMobileTab({ perms }) {
             {lancamentos.map((l) => (
               <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '8px 12px' }}>
                 <span>{formatNumber(l.valor)} {selecionado.unidade} <span style={{ color: colors.textMuted, fontSize: 12 }}>— {l.criadoPor}</span></span>
-                {perms.contagem_mobile?.edit && contagem.isToday && <button style={styles.button('danger')} onClick={() => remover(l.id)}>Remover</button>}
+                {podeContar && <button style={styles.button('danger')} onClick={() => remover(l.id)}>Remover</button>}
               </div>
             ))}
           </div>
@@ -1279,7 +1318,7 @@ function Layout({ user, perms, onLogout }) {
           {activeTab === 'cadastros' && <CadastrosTab perms={perms} pendingRegister={pendingRegister} onRegistered={onMaterialRegistered} />}
           {activeTab === 'explosao' && <ExplosaoTab perms={perms} onNavigate={selectTab} />}
           {activeTab === 'materia_prima_produzida' && <MateriaPrimaProduzidaTab perms={perms} onNavigate={selectTab} />}
-          {activeTab === 'contagem' && <ContagemTab perms={perms} selected={contagemSelecionada} onSelect={setContagemSelecionada} onGoRegister={goRegister} refreshKey={contagemRefreshKey} />}
+          {activeTab === 'contagem' && <ContagemTab perms={perms} isAdmin={user.role === 'admin'} selected={contagemSelecionada} onSelect={setContagemSelecionada} onGoRegister={goRegister} refreshKey={contagemRefreshKey} />}
           {activeTab === 'contagem_mobile' && <ContagemMobileTab perms={perms} />}
           {activeTab === 'usuarios' && <UsuariosTab perms={perms} />}
           {activeTab === 'permissoes' && <PermissoesTab />}

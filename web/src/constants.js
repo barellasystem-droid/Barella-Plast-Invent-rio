@@ -20,6 +20,11 @@ export const ESTADO_LABELS = {
   MAQUINA: 'Máquina',
 };
 
+export const STATUS_LABELS = { ABERTA: 'Em Contagem', FINALIZADA: 'Finalizada' };
+export function statusTone(status) {
+  return status === 'FINALIZADA' ? 'success' : 'default';
+}
+
 export const UNIDADES = ['KG', 'UN', 'ML', 'PÇ'];
 export const ROLES = ['admin', 'estoque', 'contagem'];
 export const ROLE_LABELS = { admin: 'Administrador', estoque: 'Estoque', contagem: 'Contagem', pendente: 'Pendente' };

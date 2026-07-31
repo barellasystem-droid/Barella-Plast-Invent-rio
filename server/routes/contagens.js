@@ -17,16 +17,24 @@ const viewContagem = requireViewAny(['contagem', 'contagem_mobile']);
 // Contagem só pode receber lançamentos/edições no dia em que foi iniciada —
 // "data" é sempre o dia de hoje no fuso de Brasília na criação (nunca
 // informada pelo cliente, ver POST / abaixo), então uma contagem de outro dia
-// é sempre passado, nunca futuro. Usado por toda rota que "conta" alguma
-// coisa (lançamento, saldo do sistema, importação); consulta (GET) nunca é
-// bloqueada.
+// é sempre passado, nunca futuro. Também trava quando o status é FINALIZADA,
+// independente da data — quem finalizou não quer que ninguém (nem no mesmo
+// dia) siga lançando por engano; só um administrador reabre (ver PUT /:id).
+// Usado por toda rota que "conta" alguma coisa (lançamento, saldo do
+// sistema, importação, estoque de produto/virgem, estado da mistura);
+// consulta (GET) nunca é bloqueada.
 const HOJE_SQL = "(now() AT TIME ZONE 'America/Sao_Paulo')::date";
 
 async function assertContagemDeHoje(contagemId) {
-  const { rows } = await db.query(`SELECT (data = ${HOJE_SQL}) AS "isToday" FROM contagens WHERE id = $1`, [contagemId]);
+  const { rows } = await db.query(`SELECT status, (data = ${HOJE_SQL}) AS "isToday" FROM contagens WHERE id = $1`, [contagemId]);
   if (!rows.length) {
     const err = new Error('Contagem não encontrada.');
     err.status = 404;
+    throw err;
+  }
+  if (rows[0].status === 'FINALIZADA') {
+    const err = new Error('Essa contagem já foi finalizada — só é possível consultar. Um administrador pode reabri-la.');
+    err.status = 403;
     throw err;
   }
   if (!rows[0].isToday) {
@@ -90,6 +98,16 @@ router.post('/', requireAuth, requireEdit('contagem'), async (req, res) => {
 
 router.put('/:id', requireAuth, requireEdit('contagem'), async (req, res) => {
   const { titulo, fornecedor, periodo, status } = req.body || {};
+  if (status !== undefined) {
+    const { rows } = await db.query('SELECT status FROM contagens WHERE id = $1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Contagem não encontrada.' });
+    // Finalizar é uma ação normal de quem edita a contagem; reabrir (tirar o
+    // FINALIZADA) só um administrador pode fazer, para não virar rotina
+    // reverter uma contagem já fechada.
+    if (rows[0].status === 'FINALIZADA' && status !== 'FINALIZADA' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Só um administrador pode reabrir uma contagem finalizada.' });
+    }
+  }
   const { rowCount } = await db.query(
     `UPDATE contagens SET titulo = COALESCE($1, titulo), fornecedor = $2, periodo = $3, status = COALESCE($4, status) WHERE id = $5`,
     [titulo, fornecedor || null, periodo || null, status, req.params.id]
