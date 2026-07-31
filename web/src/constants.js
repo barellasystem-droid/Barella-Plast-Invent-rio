@@ -1,9 +1,9 @@
 export const NAV_ITEMS = [
   { id: 'cadastros', label: 'Cadastros' },
   { id: 'explosao', label: 'Explosão' },
-  { id: 'materia_prima_produzida', label: 'Matéria-Prima Produzida' },
+  { id: 'materia_prima_produzida', label: 'Matéria Prima Processada' },
   { id: 'contagem', label: 'Relatório de Contagem' },
-  { id: 'contagem_mobile', label: 'Contagem (celular)' },
+  { id: 'contagem_mobile', label: 'Contagem' },
   { id: 'usuarios', label: 'Usuários' },
   { id: 'permissoes', label: 'Permissões' },
 ];

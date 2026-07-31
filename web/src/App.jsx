@@ -510,7 +510,7 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
 
   return (
     <div>
-      <h1 style={styles.h1}>Matéria-Prima Produzida</h1>
+      <h1 style={styles.h1}>Matéria Prima Processada</h1>
       <p style={{ color: colors.textMuted, marginTop: -8 }}>Informe a quantidade em estoque de cada produto — o sistema recalcula quanto de matéria-prima já está produzida.</p>
       {perms.contagem?.view && (
         <Banner tone="default">
