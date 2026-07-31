@@ -486,11 +486,13 @@ function ExplosaoTab({ perms, onNavigate }) {
   const [blends, reload] = useAsyncList(() => (contagemId ? api.contagens.blends.list(contagemId) : Promise.resolve([])), [contagemId]);
   const [rawMaterials] = useAsyncList(api.rawMaterials.list, []);
   const [showNew, setShowNew] = useState(false);
+  const [filter, setFilter] = useState('');
   const canEdit = perms.explosao?.edit;
 
   useEffect(() => { if (contagemId) api.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
   const finalizada = contagem?.status === 'FINALIZADA';
   const podeEditar = canEdit && contagem?.isToday && !finalizada;
+  const filteredBlends = (blends || []).filter((b) => !filter || b.nome.toLowerCase().includes(filter.toLowerCase()));
 
   return (
     <div>
@@ -523,14 +525,18 @@ function ExplosaoTab({ perms, onNavigate }) {
               dessa contagem são somente consulta.
             </Banner>
           )}
-          {canEdit && !showNew && <button style={styles.button('primary')} onClick={() => setShowNew(true)}>+ Nova mistura</button>}
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+            <input style={{ ...styles.input, maxWidth: 300 }} placeholder="Buscar produto/mistura..." value={filter} onChange={(e) => setFilter(e.target.value)} />
+            {canEdit && !showNew && <button style={styles.button('primary')} onClick={() => setShowNew(true)}>+ Nova mistura</button>}
+          </div>
           {showNew && (
             <div style={{ marginTop: 12 }}>
               <BlendCard blend={{ id: null, nome: '', components: [], estados: {} }} rawMaterials={rawMaterials} canEdit={canEdit} podeEditarEstados={podeEditar} contagemId={contagemId} onChanged={() => { setShowNew(false); reload(); }} />
             </div>
           )}
           <div style={{ marginTop: 16, display: 'grid', gap: 16 }}>
-            {(blends || []).map((b) => <BlendCard key={b.id} blend={b} rawMaterials={rawMaterials} canEdit={canEdit} podeEditarEstados={podeEditar} contagemId={contagemId} onChanged={reload} />)}
+            {filteredBlends.map((b) => <BlendCard key={b.id} blend={b} rawMaterials={rawMaterials} canEdit={canEdit} podeEditarEstados={podeEditar} contagemId={contagemId} onChanged={reload} />)}
+            {filteredBlends.length === 0 && <p style={{ color: colors.textMuted }}>Nenhuma mistura encontrada para "{filter}".</p>}
           </div>
         </>
       )}
@@ -786,6 +792,7 @@ function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
   const [importResult, setImportResult] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [changingStatus, setChangingStatus] = useState(false);
+  const [filter, setFilter] = useState('');
   const canEditReport = perms.contagem?.edit;
 
   const load = useCallback(() => {
@@ -885,6 +892,7 @@ function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
         />
       )}
 
+      <input style={{ ...styles.input, maxWidth: 300, marginBottom: 12 }} placeholder="Buscar produto por código ou nome..." value={filter} onChange={(e) => setFilter(e.target.value)} />
       <table style={styles.table} className="bp-table-scroll">
         <thead>
           <tr>
@@ -894,7 +902,7 @@ function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
           </tr>
         </thead>
         <tbody>
-          {contagem.itens.map((i) => (
+          {contagem.itens.filter((i) => !filter || i.rawMaterialCode.toLowerCase().includes(filter.toLowerCase()) || i.nome.toLowerCase().includes(filter.toLowerCase())).map((i) => (
             <tr key={i.id}>
               <td style={styles.td}>{i.rawMaterialCode}</td>
               <td style={styles.td}>{i.nome}</td>
