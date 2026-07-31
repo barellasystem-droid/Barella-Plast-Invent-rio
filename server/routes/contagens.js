@@ -6,6 +6,7 @@ const db = require('../db');
 const { requireAuth, requireEdit, requireViewAny } = require('../auth');
 const { computeDivergence } = require('../calc');
 const { parseXlsxBuffer, parsePdfBuffer, normalizeCode } = require('../import-parsers');
+const { getRawMaterialSummary } = require('../materiaPrimaProduzida');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -74,23 +75,36 @@ router.delete('/:id', requireAuth, requireEdit('contagem'), async (req, res) => 
   res.json({ ok: true });
 });
 
+// Saldo do Inventário = o que foi contado fisicamente pelo celular (soma dos
+// lançamentos) + o que já está "produzido" segundo Explosão/Matéria-Prima
+// Produzida (BOM x estoque de produto, virgem, e os estados da mistura) —
+// tudo que é informado na aba Explosão entra automaticamente nessa soma,
+// para não faltar nem duplicar material que já está em processo/mistura e
+// não dá para contar fisicamente de novo.
 async function loadItens(contagemId) {
-  const { rows } = await db.query(
-    `SELECT ci.id, ci.raw_material_code AS "rawMaterialCode", rm.nome, rm.unidade,
-            ci.saldo_sistema AS "saldoSistema", ci.saldo_sistema_origem AS "saldoSistemaOrigem",
-            ci.notas_transito AS "notasTransito", ci.observacao,
-            COALESCE(SUM(cl.valor), 0) AS "saldoInventario"
-     FROM contagem_itens ci
-     JOIN raw_materials rm ON rm.code = ci.raw_material_code
-     LEFT JOIN contagem_lancamentos cl ON cl.contagem_item_id = ci.id
-     WHERE ci.contagem_id = $1
-     GROUP BY ci.id, rm.nome, rm.unidade
-     ORDER BY ci.raw_material_code`,
-    [contagemId]
-  );
-  return rows.map((r) => {
-    const { divergencia, percentual, condicao } = computeDivergence(r.saldoSistema, r.saldoInventario, r.notasTransito);
-    return { ...r, divergencia, divergenciaPercentual: percentual, condicao };
+  const [itensRes, producaoPorMaterial] = await Promise.all([
+    db.query(
+      `SELECT ci.id, ci.raw_material_code AS "rawMaterialCode", rm.nome, rm.unidade,
+              ci.saldo_sistema AS "saldoSistema", ci.saldo_sistema_origem AS "saldoSistemaOrigem",
+              ci.notas_transito AS "notasTransito", ci.observacao,
+              COALESCE(SUM(cl.valor), 0) AS "contagemFisica"
+       FROM contagem_itens ci
+       JOIN raw_materials rm ON rm.code = ci.raw_material_code
+       LEFT JOIN contagem_lancamentos cl ON cl.contagem_item_id = ci.id
+       WHERE ci.contagem_id = $1
+       GROUP BY ci.id, rm.nome, rm.unidade
+       ORDER BY ci.raw_material_code`,
+      [contagemId]
+    ),
+    getRawMaterialSummary(),
+  ]);
+  const producaoByCode = new Map(producaoPorMaterial.map((p) => [p.code, p.total]));
+
+  return itensRes.rows.map((r) => {
+    const materiaPrimaProduzida = producaoByCode.get(r.rawMaterialCode) || 0;
+    const saldoInventario = Number(r.contagemFisica) + Number(materiaPrimaProduzida);
+    const { divergencia, percentual, condicao } = computeDivergence(r.saldoSistema, saldoInventario, r.notasTransito);
+    return { ...r, materiaPrimaProduzida, saldoInventario, divergencia, divergenciaPercentual: percentual, condicao };
   });
 }
 

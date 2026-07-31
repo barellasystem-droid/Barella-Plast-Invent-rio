@@ -459,7 +459,7 @@ function BlendCard({ blend, rawMaterials, canEdit, onChanged }) {
   );
 }
 
-function ExplosaoTab({ perms }) {
+function ExplosaoTab({ perms, onNavigate }) {
   const [blends, reload] = useAsyncList(api.blends.list, []);
   const [rawMaterials] = useAsyncList(api.rawMaterials.list, []);
   const [showNew, setShowNew] = useState(false);
@@ -468,6 +468,15 @@ function ExplosaoTab({ perms }) {
   return (
     <div>
       <h1 style={styles.h1}>Explosão — misturas e percentuais</h1>
+      {perms.contagem?.view && (
+        <Banner tone="default">
+          Tudo que for lançado aqui (por estado) é somado automaticamente ao Saldo do Inventário do Relatório
+          de Contagem, junto com a contagem física do celular.{' '}
+          <button type="button" onClick={() => onNavigate('contagem')} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontWeight: 600, padding: 0 }}>
+            Ver Relatório de Contagem →
+          </button>
+        </Banner>
+      )}
       {canEdit && !showNew && <button style={styles.button('primary')} onClick={() => setShowNew(true)}>+ Nova mistura</button>}
       {showNew && (
         <div style={{ marginTop: 12 }}>
@@ -483,7 +492,7 @@ function ExplosaoTab({ perms }) {
 
 // ---------------------------------------------------- Matéria-Prima Produzida
 
-function MateriaPrimaProduzidaTab({ perms }) {
+function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
   const [products] = useAsyncList(api.products.list, []);
   const [stock, reloadStock] = useAsyncList(api.productStock.list, []);
   const [rawMaterials] = useAsyncList(api.rawMaterials.list, []);
@@ -503,6 +512,15 @@ function MateriaPrimaProduzidaTab({ perms }) {
     <div>
       <h1 style={styles.h1}>Matéria-Prima Produzida</h1>
       <p style={{ color: colors.textMuted, marginTop: -8 }}>Informe a quantidade em estoque de cada produto — o sistema recalcula quanto de matéria-prima já está produzida.</p>
+      {perms.contagem?.view && (
+        <Banner tone="default">
+          O Total desta tela é somado automaticamente ao Saldo do Inventário do Relatório de Contagem, junto
+          com a contagem física do celular.{' '}
+          <button type="button" onClick={() => onNavigate('contagem')} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontWeight: 600, padding: 0 }}>
+            Ver Relatório de Contagem →
+          </button>
+        </Banner>
+      )}
 
       <div style={styles.card}>
         <h2 style={styles.h2}>Estoque de produtos</h2>
@@ -781,7 +799,12 @@ function ContagemDetail({ id, perms, onGoRegister, refreshKey }) {
                 <input style={{ ...styles.input, width: 110 }} type="number" step="any" disabled={!podeEditar}
                   defaultValue={i.saldoSistema} onBlur={(e) => saveItem(i.rawMaterialCode, { saldoSistema: Number(e.target.value) || 0 })} />
               </td>
-              <td style={styles.td}>{formatNumber(i.saldoInventario)}</td>
+              <td style={styles.td}>
+                {formatNumber(i.saldoInventario)}
+                <div style={{ fontSize: 11, color: colors.textMuted, whiteSpace: 'normal' }}>
+                  {formatNumber(i.contagemFisica)} contado + {formatNumber(i.materiaPrimaProduzida)} produção
+                </div>
+              </td>
               <td style={styles.td}>
                 <input style={{ ...styles.input, width: 100 }} type="number" step="any" disabled={!podeEditar}
                   defaultValue={i.notasTransito} onBlur={(e) => saveItem(i.rawMaterialCode, { notasTransito: Number(e.target.value) || 0 })} />
@@ -948,8 +971,11 @@ function ContagemMobileTab({ perms }) {
           <div style={{ ...styles.card, marginTop: 12, textAlign: 'center' }}>
             <div style={{ fontWeight: 700 }}>{selecionado.rawMaterialCode} — {selecionado.nome}</div>
             <div style={{ color: colors.textMuted, fontSize: 13 }}>Unidade: {selecionado.unidade}</div>
-            <div style={{ ...styles.bigNumber, marginTop: 12 }}>{formatNumber(selecionado.saldoInventario)}</div>
-            <div style={{ color: colors.textMuted, fontSize: 12 }}>total contado até agora</div>
+            <div style={{ ...styles.bigNumber, marginTop: 12 }}>{formatNumber(selecionado.contagemFisica)}</div>
+            <div style={{ color: colors.textMuted, fontSize: 12 }}>contado fisicamente até agora</div>
+            <div style={{ color: colors.textMuted, fontSize: 12, marginTop: 8, borderTop: `1px solid ${colors.border}`, paddingTop: 8 }}>
+              + {formatNumber(selecionado.materiaPrimaProduzida)} já produzido (Explosão) = <b>{formatNumber(selecionado.saldoInventario)}</b> no Relatório de Contagem
+            </div>
           </div>
 
           {perms.contagem_mobile?.edit && contagem.isToday && (
@@ -1181,8 +1207,8 @@ function Layout({ user, perms, onLogout }) {
         </div>
         <div className="bp-content" style={styles.content}>
           {activeTab === 'cadastros' && <CadastrosTab perms={perms} pendingRegister={pendingRegister} onRegistered={onMaterialRegistered} />}
-          {activeTab === 'explosao' && <ExplosaoTab perms={perms} />}
-          {activeTab === 'materia_prima_produzida' && <MateriaPrimaProduzidaTab perms={perms} />}
+          {activeTab === 'explosao' && <ExplosaoTab perms={perms} onNavigate={selectTab} />}
+          {activeTab === 'materia_prima_produzida' && <MateriaPrimaProduzidaTab perms={perms} onNavigate={selectTab} />}
           {activeTab === 'contagem' && <ContagemTab perms={perms} selected={contagemSelecionada} onSelect={setContagemSelecionada} onGoRegister={goRegister} refreshKey={contagemRefreshKey} />}
           {activeTab === 'contagem_mobile' && <ContagemMobileTab perms={perms} />}
           {activeTab === 'usuarios' && <UsuariosTab perms={perms} />}
