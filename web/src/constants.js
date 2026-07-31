@@ -20,9 +20,11 @@ export const ESTADO_LABELS = {
   MAQUINA: 'Máquina',
 };
 
-export const STATUS_LABELS = { ABERTA: 'Em Contagem', FINALIZADA: 'Finalizada' };
+// FECHADA existe só na contagem "Dados importados da planilha" criada pela
+// migração automática (server/db.js) — trata como Finalizada na exibição.
+export const STATUS_LABELS = { ABERTA: 'Em Contagem', FINALIZADA: 'Finalizada', FECHADA: 'Finalizada' };
 export function statusTone(status) {
-  return status === 'FINALIZADA' ? 'success' : 'default';
+  return status === 'FINALIZADA' || status === 'FECHADA' ? 'success' : 'default';
 }
 
 export const UNIDADES = ['KG', 'UN', 'ML', 'PÇ'];
