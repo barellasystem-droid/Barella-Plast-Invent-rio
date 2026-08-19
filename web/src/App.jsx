@@ -586,7 +586,7 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
       <div style={styles.card}>
         <ContagemSelector contagemId={contagemId} onChange={setContagemId} contagens={contagens} />
         <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: 0 }}>
-          Uma contagem nova já começa com os valores da contagem anterior mais recente — ajuste só o que mudou.
+          Toda contagem nova começa zerada — informe o estoque de produto e o estoque virgem apurados nessa contagem.
         </p>
       </div>
 

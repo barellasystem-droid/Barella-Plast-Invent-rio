@@ -65,33 +65,11 @@ router.post('/', requireAuth, requireEdit('contagem'), async (req, res) => {
         [crypto.randomUUID(), id, m.code]
       );
     }
-
-    // Começa com o "retrato" da contagem anterior mais recente (estoque de
-    // produto, estoque virgem, estados da mistura), para não obrigar a
-    // redigitar tudo de novo toda vez — o usuário ajusta só o que mudou
-    // nesse período. Sem contagem anterior, começa zerado.
-    const { rows: anterior } = await client.query(
-      `SELECT id FROM contagens WHERE id != $1 ORDER BY data DESC, created_at DESC LIMIT 1`,
-      [id]
-    );
-    if (anterior.length) {
-      const prevId = anterior[0].id;
-      await client.query(
-        `INSERT INTO contagem_product_stock (contagem_id, product_code, quantidade)
-         SELECT $1, product_code, quantidade FROM contagem_product_stock WHERE contagem_id = $2`,
-        [id, prevId]
-      );
-      await client.query(
-        `INSERT INTO contagem_virgin_stock (contagem_id, raw_material_code, quantidade)
-         SELECT $1, raw_material_code, quantidade FROM contagem_virgin_stock WHERE contagem_id = $2`,
-        [id, prevId]
-      );
-      await client.query(
-        `INSERT INTO contagem_blend_state_quantities (contagem_id, blend_id, estado, quantidade)
-         SELECT $1, blend_id, estado, quantidade FROM contagem_blend_state_quantities WHERE contagem_id = $2`,
-        [id, prevId]
-      );
-    }
+    // Toda contagem nova começa zerada (estoque de produto, estoque virgem e
+    // estado da mistura) — não copia nada da contagem anterior. Contagem é
+    // uma apuração física do zero; começar com valor antigo pré-preenchido
+    // mascara item esquecido (fica parecendo que já foi conferido) e gera
+    // divergência errada no Relatório de Contagem.
   });
   res.status(201).json({ id });
 });
