@@ -282,23 +282,36 @@ router.post('/:id/import/retry', requireAuth, requireEdit('contagem'), async (re
   res.json(result);
 });
 
+// Layout replicando a planilha original (aba RELATÓRIO DE CONTAGEM): título +
+// data da contagem na linha 1, cabeçalho igual ao do anexo na linha 2, itens
+// em seguida, e por fim a linha de assinatura ("MONDIAL - GESTÃO DE
+// TERCEIROS" / "COORD. ADMINISTRATIVO FORNECEDOR") que o fornecedor assina
+// manualmente depois de impresso.
 router.get('/:id/export', requireAuth, viewContagem, async (req, res) => {
-  const { rows: contagemRows } = await db.query('SELECT titulo FROM contagens WHERE id = $1', [req.params.id]);
+  const { rows: contagemRows } = await db.query('SELECT titulo, data::text AS data FROM contagens WHERE id = $1', [req.params.id]);
   if (!contagemRows.length) return res.status(404).json({ error: 'Contagem não encontrada.' });
   const itens = await loadItens(req.params.id);
-  const data = itens.map((i) => ({
-    'Código': i.rawMaterialCode,
-    'Descrição': i.nome,
-    'Saldo do Sistema': i.saldoSistema,
-    'Saldo do Inventário': i.saldoInventario,
-    'Notas em Trânsito': i.notasTransito,
-    'Divergência': i.divergencia,
-    'Unidade de Referência': i.unidade,
-    'Divergência %': i.divergenciaPercentual,
-    'Condição': i.condicao,
-    'Observação': i.observacao || '',
-  }));
-  const ws = XLSX.utils.json_to_sheet(data);
+  const [ano, mes, dia] = contagemRows[0].data.split('-');
+  const dataFormatada = `${dia}/${mes}/${ano}`;
+
+  const header = [
+    'CÓDIGO', 'DESCRIÇÃO', 'SALDO DO SISTEMA', 'SALDO DO INVENTÁRIO', 'NOTAS EM TRÂNSITO',
+    'DIVERGÊNCIA', 'UNIDADE DE REFERÊNCIA', 'DIVERGÊNCIA PORCENTAGEM - %', 'CONDIÇÃO', 'OBSERVAÇÃO',
+  ];
+  const linhas = itens.map((i) => [
+    i.rawMaterialCode, i.nome, i.saldoSistema, i.saldoInventario, i.notasTransito,
+    i.divergencia, i.unidade, i.divergenciaPercentual, i.condicao, i.observacao || '',
+  ]);
+
+  const aoa = [
+    ['RELATÓRIO DE CONTAGEM DE INVENTÁRIO - BARELLA', '', '', '', '', '', '', dataFormatada],
+    header,
+    ...linhas,
+    [],
+    ['', 'MONDIAL - GESTÃO DE TERCEIROS', '', '', '', 'COORD. ADMINISTRATIVO FORNECEDOR'],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges'] = [{ s: { r: aoa.length - 1, c: 5 }, e: { r: aoa.length - 1, c: 9 } }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Contagem');
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
