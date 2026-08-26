@@ -132,6 +132,17 @@ async function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_contagem_lancamentos_item ON contagem_lancamentos(contagem_item_id);
 
+    -- Cada lançamento é ou um peso (na unidade da matéria-prima, ex: KG) ou uma
+    -- quantidade (contagem por unidade/saco/peça) — são dois totais mantidos
+    -- separados (não convertidos um no outro), porque nem toda contagem tem
+    -- como saber o peso de cada unidade contada. Só "peso" entra no cálculo do
+    -- Saldo do Inventário (mesma unidade do restante do sistema); "quantidade"
+    -- é só informativo.
+    ALTER TABLE contagem_lancamentos ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'PESO';
+    ALTER TABLE contagem_lancamentos DROP CONSTRAINT IF EXISTS contagem_lancamentos_tipo_check;
+    ALTER TABLE contagem_lancamentos ADD CONSTRAINT contagem_lancamentos_tipo_check
+      CHECK (tipo IN ('PESO','QUANTIDADE'));
+
     -- Cadastro público (auto-registro): quem se cadastra pela tela de login
     -- entra com o papel 'pendente' e só ganha acesso de verdade quando um
     -- administrador troca o papel dele (ver server/routes/auth.js e
@@ -188,7 +199,44 @@ async function init() {
       PRIMARY KEY (contagem_id, blend_id, estado)
     );
   `);
+  await addOnUpdateCascades();
   await migrateToContagemScoped();
+}
+
+// Permite editar o código de uma matéria-prima ou produto depois de
+// cadastrado: por padrão o Postgres rejeita a mudança se existir alguma
+// linha referenciando o código antigo, então toda FK que aponta para
+// raw_materials(code)/products(code) precisa de ON UPDATE CASCADE (o nome da
+// constraint é descoberto em runtime em vez de fixo, já que pode variar
+// conforme quando a tabela foi criada).
+async function addOnUpdateCascades() {
+  const fks = [
+    ['product_materials', 'product_code', 'products', 'code', 'CASCADE'],
+    ['product_materials', 'raw_material_code', 'raw_materials', 'code', 'RESTRICT'],
+    ['product_stock', 'product_code', 'products', 'code', 'CASCADE'],
+    ['raw_material_virgin_stock', 'raw_material_code', 'raw_materials', 'code', 'CASCADE'],
+    ['blend_components', 'raw_material_code', 'raw_materials', 'code', 'RESTRICT'],
+    ['contagem_itens', 'raw_material_code', 'raw_materials', 'code', 'RESTRICT'],
+    ['contagem_product_stock', 'product_code', 'products', 'code', 'CASCADE'],
+    ['contagem_virgin_stock', 'raw_material_code', 'raw_materials', 'code', 'CASCADE'],
+  ];
+  for (const [table, column, refTable, refColumn, onDelete] of fks) {
+    const { rows } = await pool.query(
+      `SELECT con.conname
+       FROM pg_constraint con
+       JOIN pg_class rel ON rel.oid = con.conrelid
+       JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
+       WHERE con.contype = 'f' AND rel.relname = $1 AND att.attname = $2`,
+      [table, column]
+    );
+    for (const row of rows) {
+      await pool.query(`ALTER TABLE ${table} DROP CONSTRAINT ${row.conname}`);
+    }
+    await pool.query(
+      `ALTER TABLE ${table} ADD CONSTRAINT ${table}_${column}_fkey
+       FOREIGN KEY (${column}) REFERENCES ${refTable}(${refColumn}) ON DELETE ${onDelete} ON UPDATE CASCADE`
+    );
+  }
 }
 
 // Roda uma única vez (fica sem efeito depois que já existe pelo menos uma

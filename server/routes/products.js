@@ -47,12 +47,17 @@ router.post('/', requireAuth, requireEdit('cadastros'), async (req, res) => {
 });
 
 router.put('/:code', requireAuth, requireEdit('cadastros'), async (req, res) => {
-  const { nome, materials } = req.body || {};
+  const { code, nome, materials } = req.body || {};
   if (!nome) return res.status(400).json({ error: 'Informe o nome.' });
-  const { rowCount } = await db.query('UPDATE products SET nome = $1 WHERE code = $2', [nome, req.params.code]);
+  const newCode = code || req.params.code;
+  if (newCode !== req.params.code) {
+    const { rows: existing } = await db.query('SELECT code FROM products WHERE code = $1', [newCode]);
+    if (existing.length) return res.status(409).json({ error: 'Já existe um produto com esse código.' });
+  }
+  const { rowCount } = await db.query('UPDATE products SET code = $1, nome = $2 WHERE code = $3', [newCode, nome, req.params.code]);
   if (!rowCount) return res.status(404).json({ error: 'Produto não encontrado.' });
-  await replaceMaterials(req.params.code, materials);
-  res.json({ ok: true });
+  await replaceMaterials(newCode, materials);
+  res.json({ ok: true, code: newCode });
 });
 
 router.delete('/:code', requireAuth, requireEdit('cadastros'), async (req, res) => {

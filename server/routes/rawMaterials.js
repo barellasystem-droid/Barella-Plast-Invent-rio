@@ -57,14 +57,19 @@ router.post('/', requireAuth, requireEdit('cadastros'), async (req, res) => {
 });
 
 router.put('/:code', requireAuth, requireEdit('cadastros'), async (req, res) => {
-  const { nome, unidade } = req.body || {};
+  const { code, nome, unidade } = req.body || {};
   if (!nome) return res.status(400).json({ error: 'Informe o nome.' });
+  const newCode = code || req.params.code;
+  if (newCode !== req.params.code) {
+    const { rows: existing } = await db.query('SELECT code FROM raw_materials WHERE code = $1', [newCode]);
+    if (existing.length) return res.status(409).json({ error: 'Já existe uma matéria-prima com esse código.' });
+  }
   const { rowCount } = await db.query(
-    'UPDATE raw_materials SET nome = $1, unidade = $2 WHERE code = $3',
-    [nome, unidade || 'KG', req.params.code]
+    'UPDATE raw_materials SET code = $1, nome = $2, unidade = $3 WHERE code = $4',
+    [newCode, nome, unidade || 'KG', req.params.code]
   );
   if (!rowCount) return res.status(404).json({ error: 'Matéria-prima não encontrada.' });
-  res.json({ ok: true });
+  res.json({ ok: true, code: newCode });
 });
 
 router.delete('/:code', requireAuth, requireEdit('cadastros'), async (req, res) => {

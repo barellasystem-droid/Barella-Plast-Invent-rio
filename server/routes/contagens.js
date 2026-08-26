@@ -111,7 +111,8 @@ async function loadItens(contagemId) {
       `SELECT ci.id, ci.raw_material_code AS "rawMaterialCode", rm.nome, rm.unidade,
               ci.saldo_sistema AS "saldoSistema", ci.saldo_sistema_origem AS "saldoSistemaOrigem",
               ci.notas_transito AS "notasTransito", ci.observacao,
-              COALESCE(SUM(cl.valor), 0) AS "contagemFisica"
+              COALESCE(SUM(cl.valor) FILTER (WHERE cl.tipo = 'PESO'), 0) AS "contagemFisica",
+              COALESCE(SUM(cl.valor) FILTER (WHERE cl.tipo = 'QUANTIDADE'), 0) AS "contagemQuantidade"
        FROM contagem_itens ci
        JOIN raw_materials rm ON rm.code = ci.raw_material_code
        LEFT JOIN contagem_lancamentos cl ON cl.contagem_item_id = ci.id
@@ -170,7 +171,7 @@ router.get('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, viewContagem,
   );
   if (!itemRows.length) return res.status(404).json({ error: 'Item não encontrado nessa contagem.' });
   const { rows } = await db.query(
-    'SELECT id, valor, criado_por AS "criadoPor", criado_em AS "criadoEm" FROM contagem_lancamentos WHERE contagem_item_id = $1 ORDER BY criado_em',
+    'SELECT id, valor, tipo, criado_por AS "criadoPor", criado_em AS "criadoEm" FROM contagem_lancamentos WHERE contagem_item_id = $1 ORDER BY criado_em',
     [itemRows[0].id]
   );
   res.json(rows);
@@ -179,6 +180,7 @@ router.get('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, viewContagem,
 router.post('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, requireEdit('contagem_mobile'), async (req, res) => {
   await assertContagemDeHoje(req.params.id);
   const valor = Number((req.body || {}).valor);
+  const tipo = (req.body || {}).tipo === 'QUANTIDADE' ? 'QUANTIDADE' : 'PESO';
   if (Number.isNaN(valor)) return res.status(400).json({ error: 'Valor inválido.' });
   const { rows: itemRows } = await db.query(
     'SELECT id FROM contagem_itens WHERE contagem_id = $1 AND raw_material_code = $2',
@@ -187,14 +189,14 @@ router.post('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, requireEdit(
   if (!itemRows.length) return res.status(404).json({ error: 'Item não encontrado nessa contagem.' });
   const id = crypto.randomUUID();
   await db.query(
-    'INSERT INTO contagem_lancamentos (id, contagem_item_id, valor, criado_por) VALUES ($1, $2, $3, $4)',
-    [id, itemRows[0].id, valor, req.user.username]
+    'INSERT INTO contagem_lancamentos (id, contagem_item_id, valor, tipo, criado_por) VALUES ($1, $2, $3, $4, $5)',
+    [id, itemRows[0].id, valor, tipo, req.user.username]
   );
   const { rows: sumRows } = await db.query(
-    'SELECT COALESCE(SUM(valor), 0) AS total FROM contagem_lancamentos WHERE contagem_item_id = $1',
+    "SELECT COALESCE(SUM(valor) FILTER (WHERE tipo = 'PESO'), 0) AS peso, COALESCE(SUM(valor) FILTER (WHERE tipo = 'QUANTIDADE'), 0) AS quantidade FROM contagem_lancamentos WHERE contagem_item_id = $1",
     [itemRows[0].id]
   );
-  res.status(201).json({ id, total: sumRows[0].total });
+  res.status(201).json({ id, tipo, totalPeso: sumRows[0].peso, totalQuantidade: sumRows[0].quantidade });
 });
 
 router.delete('/:id/itens/:rawMaterialCode/lancamentos/:lancamentoId', requireAuth, requireEdit('contagem_mobile'), async (req, res) => {

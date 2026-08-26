@@ -83,7 +83,7 @@ export const api = {
     remove: (id) => request('DELETE', `/contagens/${id}`),
     setItem: (id, code, patch) => request('PUT', `/contagens/${id}/itens/${encodeURIComponent(code)}`, patch),
     lancamentos: (id, code) => request('GET', `/contagens/${id}/itens/${encodeURIComponent(code)}/lancamentos`),
-    addLancamento: (id, code, valor) => request('POST', `/contagens/${id}/itens/${encodeURIComponent(code)}/lancamentos`, { valor }),
+    addLancamento: (id, code, valor, tipo) => request('POST', `/contagens/${id}/itens/${encodeURIComponent(code)}/lancamentos`, { valor, tipo }),
     removeLancamento: (id, code, lancamentoId) => request('DELETE', `/contagens/${id}/itens/${encodeURIComponent(code)}/lancamentos/${lancamentoId}`),
     // Matéria Prima Processada e Explosão, por contagem (snapshot do período):
     productStock: {

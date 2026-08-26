@@ -180,12 +180,13 @@ function Login({ onLogin }) {
 function RawMaterialForm({ initial, isEdit, onSaved, onCancel }) {
   const [form, setForm] = useState(initial || { code: '', nome: '', unidade: 'KG' });
   const [error, setError] = useState('');
+  const originalCode = initial?.code;
 
   async function submit(e) {
     e.preventDefault();
     setError('');
     try {
-      if (isEdit) await api.rawMaterials.update(form.code, { nome: form.nome, unidade: form.unidade });
+      if (isEdit) await api.rawMaterials.update(originalCode, { code: form.code, nome: form.nome, unidade: form.unidade });
       else await api.rawMaterials.create(form);
       onSaved();
     } catch (err) {
@@ -198,7 +199,7 @@ function RawMaterialForm({ initial, isEdit, onSaved, onCancel }) {
       {error && <Banner tone="danger">{error}</Banner>}
       <div className="bp-form-grid" style={styles.formGrid}>
         <Field label="Código">
-          <input style={styles.input} value={form.code} disabled={isEdit} onChange={(e) => setForm({ ...form, code: e.target.value })} required />
+          <input style={styles.input} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} required />
         </Field>
         <Field label="Nome">
           <input style={styles.input} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} required />
@@ -297,7 +298,7 @@ function ProductForm({ code, rawMaterials, onSaved, onCancel }) {
     <form onSubmit={submit} style={{ ...styles.card, background: '#FAFAFA' }}>
       {error && <Banner tone="danger">{error}</Banner>}
       <div className="bp-form-grid" style={styles.formGrid}>
-        <Field label="Código"><input style={styles.input} value={form.code} disabled={isEdit} onChange={(e) => setForm({ ...form, code: e.target.value })} required /></Field>
+        <Field label="Código"><input style={styles.input} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} required /></Field>
         <Field label="Nome"><input style={styles.input} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} required /></Field>
       </div>
       <h3 style={{ ...styles.h2, marginTop: 16 }}>Consumo de matéria-prima por unidade produzida</h3>
@@ -1013,11 +1014,13 @@ function ContagemMobileTab({ perms }) {
   const [selecionado, setSelecionado] = useState(null);
   const [lancamentos, setLancamentos] = useState([]);
   const [valor, setValor] = useState('');
+  const [tipo, setTipo] = useState('PESO');
 
   useEffect(() => { if (contagemId) api.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
 
   async function selecionarItem(item) {
     setSelecionado(item);
+    setTipo('PESO');
     setLancamentos(await api.contagens.lancamentos(contagemId, item.rawMaterialCode));
   }
 
@@ -1032,7 +1035,7 @@ function ContagemMobileTab({ perms }) {
   async function adicionar() {
     const v = Number(valor);
     if (!v && v !== 0) return;
-    await api.contagens.addLancamento(contagemId, selecionado.rawMaterialCode, v);
+    await api.contagens.addLancamento(contagemId, selecionado.rawMaterialCode, v, tipo);
     setValor('');
     await refreshItem();
   }
@@ -1089,18 +1092,33 @@ function ContagemMobileTab({ perms }) {
             <div style={{ fontWeight: 700 }}>{selecionado.rawMaterialCode} — {selecionado.nome}</div>
             <div style={{ color: colors.textMuted, fontSize: 13 }}>Unidade: {selecionado.unidade}</div>
             <div style={{ ...styles.bigNumber, marginTop: 12 }}>{formatNumber(selecionado.contagemFisica)}</div>
-            <div style={{ color: colors.textMuted, fontSize: 12 }}>contado fisicamente até agora</div>
+            <div style={{ color: colors.textMuted, fontSize: 12 }}>contado em peso ({selecionado.unidade}) até agora</div>
+            {Number(selecionado.contagemQuantidade) !== 0 && (
+              <div style={{ color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
+                + {formatNumber(selecionado.contagemQuantidade)} contado em quantidade (informativo, não entra no total)
+              </div>
+            )}
             <div style={{ color: colors.textMuted, fontSize: 12, marginTop: 8, borderTop: `1px solid ${colors.border}`, paddingTop: 8 }}>
               + {formatNumber(selecionado.materiaPrimaProduzida)} já produzido (Explosão) = <b>{formatNumber(selecionado.saldoInventario)}</b> no Relatório de Contagem
             </div>
           </div>
 
           {podeContar && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <input style={{ ...styles.input, fontSize: 20, textAlign: 'center' }} type="number" inputMode="decimal" step="any"
-                placeholder={`+ valor em ${selecionado.unidade}`} value={valor} onChange={(e) => setValor(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') adicionar(); }} />
-              <button style={styles.button('primary')} onClick={adicionar}>Somar</button>
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" style={styles.button(tipo === 'PESO' ? 'primary' : 'ghost')} onClick={() => setTipo('PESO')}>
+                  Peso ({selecionado.unidade})
+                </button>
+                <button type="button" style={styles.button(tipo === 'QUANTIDADE' ? 'primary' : 'ghost')} onClick={() => setTipo('QUANTIDADE')}>
+                  Quantidade
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input style={{ ...styles.input, fontSize: 20, textAlign: 'center' }} type="number" inputMode="decimal" step="any"
+                  placeholder={tipo === 'PESO' ? `+ valor em ${selecionado.unidade}` : '+ quantidade'} value={valor} onChange={(e) => setValor(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') adicionar(); }} />
+                <button style={styles.button('primary')} onClick={adicionar}>Somar</button>
+              </div>
             </div>
           )}
 
@@ -1109,7 +1127,11 @@ function ContagemMobileTab({ perms }) {
           <div style={{ display: 'grid', gap: 8 }}>
             {lancamentos.map((l) => (
               <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '8px 12px' }}>
-                <span>{formatNumber(l.valor)} {selecionado.unidade} <span style={{ color: colors.textMuted, fontSize: 12 }}>— {l.criadoPor}</span></span>
+                <span>
+                  {formatNumber(l.valor)} {l.tipo === 'QUANTIDADE' ? 'un.' : selecionado.unidade}
+                  {' '}<Badge tone={l.tipo === 'QUANTIDADE' ? 'default' : 'success'}>{l.tipo === 'QUANTIDADE' ? 'Quantidade' : 'Peso'}</Badge>
+                  {' '}<span style={{ color: colors.textMuted, fontSize: 12 }}>— {l.criadoPor}</span>
+                </span>
                 {podeContar && <button style={styles.button('danger')} onClick={() => remover(l.id)}>Remover</button>}
               </div>
             ))}
