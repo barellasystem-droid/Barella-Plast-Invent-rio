@@ -547,6 +547,27 @@ function ExplosaoTab({ perms, onNavigate }) {
 
 // ---------------------------------------------------- Matéria-Prima Produzida
 
+// Input controlado que mantém o valor salvo visível mesmo depois de recarregar
+// os dados (ex: ao trocar de contagem ou voltar pra essa aba) — só não
+// sobrescreve o que a pessoa está digitando no meio da edição (campo "sujo").
+function EditableNumberCell({ value, disabled, onSave }) {
+  const [local, setLocal] = useState(value);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => { if (!dirty) setLocal(value); }, [value, dirty]);
+
+  return (
+    <input
+      style={{ ...styles.input, width: 140 }}
+      type="number" step="any"
+      disabled={disabled}
+      value={local}
+      onChange={(e) => { setDirty(true); setLocal(e.target.value); }}
+      onBlur={async (e) => { setDirty(false); await onSave(Number(e.target.value) || 0); }}
+    />
+  );
+}
+
 function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
   const [contagens] = useAsyncList(api.contagens.list, []);
   const [contagemId, setContagemId] = useState('');
@@ -616,12 +637,10 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
                     <td style={styles.td}>{p.code}</td>
                     <td style={styles.td}>{p.nome}</td>
                     <td style={styles.td}>
-                      <input
-                        style={{ ...styles.input, width: 140 }}
-                        type="number" step="any"
+                      <EditableNumberCell
+                        value={stockByCode[p.code] || 0}
                         disabled={!podeEditar}
-                        defaultValue={stockByCode[p.code] || 0}
-                        onBlur={async (e) => { await api.contagens.productStock.set(contagemId, p.code, Number(e.target.value) || 0); refreshAll(); }}
+                        onSave={async (v) => { await api.contagens.productStock.set(contagemId, p.code, v); refreshAll(); }}
                       />
                     </td>
                   </tr>
@@ -640,12 +659,10 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
                     <td style={styles.td}>{m.code}</td>
                     <td style={styles.td}>{m.nome}</td>
                     <td style={styles.td}>
-                      <input
-                        style={{ ...styles.input, width: 140 }}
-                        type="number" step="any"
+                      <EditableNumberCell
+                        value={virginByCode[m.code] || 0}
                         disabled={!podeEditar}
-                        defaultValue={virginByCode[m.code] || 0}
-                        onBlur={async (e) => { await api.contagens.virginStock.set(contagemId, m.code, Number(e.target.value) || 0); refreshAll(); }}
+                        onSave={async (v) => { await api.contagens.virginStock.set(contagemId, m.code, v); refreshAll(); }}
                       />
                     </td>
                   </tr>
