@@ -1,12 +1,19 @@
+// "group" reúne as abas específicas do padrão de inventário de uma marca sob
+// um item pai retrátil na barra lateral (ex: "Mondial") — permite que outras
+// marcas, com abas próprias, entrem depois sem misturar tudo numa lista só.
+// Usuários e Permissões ficam fora de qualquer grupo por serem
+// administrativas, compartilhadas entre todas as marcas.
 export const NAV_ITEMS = [
-  { id: 'cadastros', label: 'Cadastros' },
-  { id: 'explosao', label: 'Explosão' },
-  { id: 'materia_prima_produzida', label: 'Matéria Prima Processada' },
-  { id: 'contagem', label: 'Relatório de Contagem' },
-  { id: 'contagem_mobile', label: 'Contagem' },
+  { id: 'cadastros', label: 'Cadastros', group: 'mondial' },
+  { id: 'explosao', label: 'Explosão', group: 'mondial' },
+  { id: 'materia_prima_produzida', label: 'Matéria Prima Processada', group: 'mondial' },
+  { id: 'contagem', label: 'Relatório de Contagem', group: 'mondial' },
+  { id: 'contagem_mobile', label: 'Contagem', group: 'mondial' },
   { id: 'usuarios', label: 'Usuários' },
   { id: 'permissoes', label: 'Permissões' },
 ];
+
+export const NAV_GROUPS = { mondial: 'Mondial' };
 
 export const ESTADOS = ['BORRA', 'MISTURA', 'GALHO', 'PECA', 'VARREDURA', 'MOIDO', 'SUCATA', 'MAQUINA'];
 export const ESTADO_LABELS = {

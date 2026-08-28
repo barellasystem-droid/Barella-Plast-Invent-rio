@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api, getToken, setToken } from './api.js';
 import { styles, colors, GlobalStyle } from './styles.jsx';
-import { NAV_ITEMS, ESTADOS, ESTADO_LABELS, UNIDADES, ROLES, ROLE_LABELS, STATUS_LABELS, statusTone, condicaoTone, formatNumber, formatPercent, formatDate, hojeBrasilia } from './constants.js';
+import { NAV_ITEMS, NAV_GROUPS, ESTADOS, ESTADO_LABELS, UNIDADES, ROLES, ROLE_LABELS, STATUS_LABELS, statusTone, condicaoTone, formatNumber, formatPercent, formatDate, hojeBrasilia } from './constants.js';
 
 // ---------------------------------------------------------------- shared UI
 
@@ -1320,8 +1320,13 @@ function PermissoesTab() {
 
 function Layout({ user, perms, onLogout }) {
   const visibleNav = NAV_ITEMS.filter((n) => perms[n.id]?.view);
+  const ungroupedNav = visibleNav.filter((n) => !n.group);
+  const groupedNav = {};
+  visibleNav.filter((n) => n.group).forEach((n) => { (groupedNav[n.group] = groupedNav[n.group] || []).push(n); });
   const [activeTab, setActiveTab] = useState(visibleNav[0]?.id || 'contagem_mobile');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState(() => Object.fromEntries(Object.keys(NAV_GROUPS).map((g) => [g, true])));
+  function toggleGroup(g) { setOpenGroups((prev) => ({ ...prev, [g]: !prev[g] })); }
   const [contagemSelecionada, setContagemSelecionada] = useState(null);
   const [pendingRegister, setPendingRegister] = useState(null); // { contagemId, code, nome }
   const [contagemRefreshKey, setContagemRefreshKey] = useState(0);
@@ -1329,6 +1334,8 @@ function Layout({ user, perms, onLogout }) {
   function selectTab(id) {
     setActiveTab(id);
     setSidebarOpen(false);
+    const item = NAV_ITEMS.find((n) => n.id === id);
+    if (item?.group) setOpenGroups((prev) => ({ ...prev, [item.group]: true }));
   }
 
   function goRegister(contagemId, code, nome) {
@@ -1351,7 +1358,23 @@ function Layout({ user, perms, onLogout }) {
       <div className={`bp-sidebar-backdrop ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)} />
       <div className={`bp-sidebar ${sidebarOpen ? 'open' : ''}`} style={styles.sidebar}>
         <div style={styles.sidebarBrand}>Barella Plast<br />Inventário</div>
-        {visibleNav.map((n) => (
+        {Object.entries(NAV_GROUPS).map(([groupId, groupLabel]) => {
+          const items = groupedNav[groupId];
+          if (!items || !items.length) return null;
+          const open = !!openGroups[groupId];
+          return (
+            <div key={groupId}>
+              <div style={styles.sidebarGroupHeader} onClick={() => toggleGroup(groupId)}>
+                <span>{groupLabel}</span>
+                <span>{open ? '▾' : '▸'}</span>
+              </div>
+              {open && items.map((n) => (
+                <div key={n.id} style={styles.sidebarLink(activeTab === n.id, true)} onClick={() => selectTab(n.id)}>{n.label}</div>
+              ))}
+            </div>
+          );
+        })}
+        {ungroupedNav.map((n) => (
           <div key={n.id} style={styles.sidebarLink(activeTab === n.id)} onClick={() => selectTab(n.id)}>{n.label}</div>
         ))}
       </div>
