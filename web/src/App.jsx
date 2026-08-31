@@ -1325,7 +1325,7 @@ function Layout({ user, perms, onLogout }) {
   visibleNav.filter((n) => n.group).forEach((n) => { (groupedNav[n.group] = groupedNav[n.group] || []).push(n); });
   const [activeTab, setActiveTab] = useState(visibleNav[0]?.id || 'contagem_mobile');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [openGroups, setOpenGroups] = useState(() => Object.fromEntries(Object.keys(NAV_GROUPS).map((g) => [g, true])));
+  const [openGroups, setOpenGroups] = useState(() => Object.fromEntries(Object.keys(NAV_GROUPS).map((g) => [g, false])));
   function toggleGroup(g) { setOpenGroups((prev) => ({ ...prev, [g]: !prev[g] })); }
   const [contagemSelecionada, setContagemSelecionada] = useState(null);
   const [pendingRegister, setPendingRegister] = useState(null); // { contagemId, code, nome }
