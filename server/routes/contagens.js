@@ -133,7 +133,10 @@ async function loadItens(contagemId) {
 
   return itensRes.rows.map((r) => {
     const materiaPrimaProduzida = producaoByCode.get(r.rawMaterialCode) || 0;
-    const saldoInventario = Number(r.contagemFisica) + Number(materiaPrimaProduzida);
+    // Peso e Quantidade são dois jeitos de registrar a mesma contagem física
+    // (balança ou contagem peça a peça) — os dois entram no Saldo do
+    // Inventário, só ficam separados pra exibição/conferência.
+    const saldoInventario = Number(r.contagemFisica) + Number(r.contagemQuantidade) + Number(materiaPrimaProduzida);
     const { divergencia, percentual, condicao } = computeDivergence(r.saldoSistema, saldoInventario, r.notasTransito);
     return { ...r, materiaPrimaProduzida, saldoInventario, divergencia, divergenciaPercentual: percentual, condicao };
   });

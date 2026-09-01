@@ -932,7 +932,7 @@ function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
               <td style={styles.td}>
                 {formatNumber(i.saldoInventario)}
                 <div style={{ fontSize: 11, color: colors.textMuted, whiteSpace: 'normal' }}>
-                  {formatNumber(i.contagemFisica)} contado + {formatNumber(i.materiaPrimaProduzida)} produção
+                  {formatNumber(Number(i.contagemFisica) + Number(i.contagemQuantidade))} contado + {formatNumber(i.materiaPrimaProduzida)} produção
                 </div>
               </td>
               <td style={styles.td}>
@@ -1052,11 +1052,10 @@ function ContagemMobileTab({ perms }) {
   async function adicionar() {
     const v = Number(valor);
     if (!v && v !== 0) return;
-    // Só faz sentido separar "peso" de "quantidade" pra matéria-prima medida
-    // em peso/volume (KG/ML) — quem já é contado por unidade (UN/PÇ) não tem
-    // essa distinção: a quantidade digitada É o valor que soma no relatório.
-    const isPesavel = selecionado.unidade === 'KG' || selecionado.unidade === 'ML';
-    await api.contagens.addLancamento(contagemId, selecionado.rawMaterialCode, v, isPesavel ? tipo : 'PESO');
+    // Peso e Quantidade são só dois jeitos de registrar a mesma contagem
+    // física (com balança ou contando peça por peça) — livre pra qualquer
+    // matéria-prima, e os dois somam no Saldo do Inventário.
+    await api.contagens.addLancamento(contagemId, selecionado.rawMaterialCode, v, tipo);
     setValor('');
     await refreshItem();
   }
@@ -1069,7 +1068,6 @@ function ContagemMobileTab({ perms }) {
   const itensFiltrados = contagem ? contagem.itens.filter((i) => !busca || i.rawMaterialCode.toLowerCase().includes(busca.toLowerCase()) || i.nome.toLowerCase().includes(busca.toLowerCase())) : [];
   const finalizada = contagem?.status === 'FINALIZADA';
   const podeContar = perms.contagem_mobile?.edit && contagem?.isToday && !finalizada;
-  const isPesavel = selecionado && (selecionado.unidade === 'KG' || selecionado.unidade === 'ML');
 
   return (
     <div style={styles.mobileScreen}>
@@ -1113,13 +1111,13 @@ function ContagemMobileTab({ perms }) {
           <div style={{ ...styles.card, marginTop: 12, textAlign: 'center' }}>
             <div style={{ fontWeight: 700 }}>{selecionado.rawMaterialCode} — {selecionado.nome}</div>
             <div style={{ color: colors.textMuted, fontSize: 13 }}>Unidade: {selecionado.unidade}</div>
-            <div style={{ ...styles.bigNumber, marginTop: 12 }}>{formatNumber(selecionado.contagemFisica)}</div>
-            <div style={{ color: colors.textMuted, fontSize: 12 }}>
-              {isPesavel ? `contado em peso (${selecionado.unidade}) até agora` : 'contado até agora'}
+            <div style={{ ...styles.bigNumber, marginTop: 12 }}>
+              {formatNumber(Number(selecionado.contagemFisica) + Number(selecionado.contagemQuantidade))}
             </div>
-            {Number(selecionado.contagemQuantidade) !== 0 && (
-              <div style={{ color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
-                + {formatNumber(selecionado.contagemQuantidade)} contado em quantidade (informativo, não entra no total)
+            <div style={{ color: colors.textMuted, fontSize: 12 }}>contado fisicamente até agora</div>
+            {(Number(selecionado.contagemFisica) !== 0 || Number(selecionado.contagemQuantidade) !== 0) && (
+              <div style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
+                ({formatNumber(selecionado.contagemFisica)} em peso + {formatNumber(selecionado.contagemQuantidade)} em quantidade)
               </div>
             )}
             <div style={{ color: colors.textMuted, fontSize: 12, marginTop: 8, borderTop: `1px solid ${colors.border}`, paddingTop: 8 }}>
@@ -1129,19 +1127,17 @@ function ContagemMobileTab({ perms }) {
 
           {podeContar && (
             <div style={{ marginTop: 16 }}>
-              {isPesavel && (
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button type="button" style={styles.button(tipo === 'PESO' ? 'primary' : 'ghost')} onClick={() => setTipo('PESO')}>
-                    Peso ({selecionado.unidade})
-                  </button>
-                  <button type="button" style={styles.button(tipo === 'QUANTIDADE' ? 'primary' : 'ghost')} onClick={() => setTipo('QUANTIDADE')}>
-                    Quantidade
-                  </button>
-                </div>
-              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" style={styles.button(tipo === 'PESO' ? 'primary' : 'ghost')} onClick={() => setTipo('PESO')}>
+                  Peso (KG)
+                </button>
+                <button type="button" style={styles.button(tipo === 'QUANTIDADE' ? 'primary' : 'ghost')} onClick={() => setTipo('QUANTIDADE')}>
+                  Quantidade (UN)
+                </button>
+              </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <input style={{ ...styles.input, fontSize: 20, textAlign: 'center' }} type="number" inputMode="decimal" step="any"
-                  placeholder={!isPesavel || tipo === 'PESO' ? `+ valor em ${selecionado.unidade}` : '+ quantidade'} value={valor} onChange={(e) => setValor(e.target.value)}
+                  placeholder={tipo === 'PESO' ? '+ valor em KG' : '+ quantidade em UN'} value={valor} onChange={(e) => setValor(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') adicionar(); }} />
                 <button style={styles.button('primary')} onClick={adicionar}>Somar</button>
               </div>
