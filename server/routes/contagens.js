@@ -107,18 +107,24 @@ router.delete('/:id', requireAuth, requireEdit('contagem'), async (req, res) => 
 // não dá para contar fisicamente de novo.
 async function loadItens(contagemId) {
   const [itensRes, producaoPorMaterial] = await Promise.all([
+    // Parte de raw_materials (não de contagem_itens): uma matéria-prima
+    // cadastrada depois que a contagem já existia ainda não tem linha em
+    // contagem_itens, mas precisa aparecer mesmo assim — senão a quantidade
+    // informada pra ela (estoque de produto, contagem física etc.) some do
+    // Relatório de Contagem mesmo estando salva corretamente no banco.
     db.query(
-      `SELECT ci.id, ci.raw_material_code AS "rawMaterialCode", rm.nome, rm.unidade,
-              ci.saldo_sistema AS "saldoSistema", ci.saldo_sistema_origem AS "saldoSistemaOrigem",
-              ci.notas_transito AS "notasTransito", ci.observacao,
+      `SELECT rm.code AS "rawMaterialCode", rm.nome, rm.unidade,
+              COALESCE(ci.saldo_sistema, 0) AS "saldoSistema",
+              COALESCE(ci.saldo_sistema_origem, 'manual') AS "saldoSistemaOrigem",
+              COALESCE(ci.notas_transito, 0) AS "notasTransito",
+              ci.observacao,
               COALESCE(SUM(cl.valor) FILTER (WHERE cl.tipo = 'PESO'), 0) AS "contagemFisica",
               COALESCE(SUM(cl.valor) FILTER (WHERE cl.tipo = 'QUANTIDADE'), 0) AS "contagemQuantidade"
-       FROM contagem_itens ci
-       JOIN raw_materials rm ON rm.code = ci.raw_material_code
+       FROM raw_materials rm
+       LEFT JOIN contagem_itens ci ON ci.contagem_id = $1 AND ci.raw_material_code = rm.code
        LEFT JOIN contagem_lancamentos cl ON cl.contagem_item_id = ci.id
-       WHERE ci.contagem_id = $1
-       GROUP BY ci.id, rm.nome, rm.unidade
-       ORDER BY ci.raw_material_code`,
+       GROUP BY rm.code, rm.nome, rm.unidade, ci.saldo_sistema, ci.saldo_sistema_origem, ci.notas_transito, ci.observacao
+       ORDER BY rm.code`,
       [contagemId]
     ),
     getRawMaterialSummary(contagemId),
@@ -147,17 +153,24 @@ router.get('/:id', requireAuth, viewContagem, async (req, res) => {
 router.put('/:id/itens/:rawMaterialCode', requireAuth, requireEdit('contagem'), async (req, res) => {
   await assertContagemDeHoje(req.params.id);
   const { saldoSistema, notasTransito, observacao } = req.body || {};
-  const { rowCount } = await db.query(
-    `UPDATE contagem_itens SET
-       saldo_sistema = COALESCE($1, saldo_sistema),
-       saldo_sistema_origem = CASE WHEN $1 IS NOT NULL THEN 'manual' ELSE saldo_sistema_origem END,
-       notas_transito = COALESCE($2, notas_transito),
-       observacao = COALESCE($3, observacao),
-       updated_at = now()
-     WHERE contagem_id = $4 AND raw_material_code = $5`,
-    [saldoSistema === undefined ? null : Number(saldoSistema), notasTransito === undefined ? null : Number(notasTransito), observacao === undefined ? null : observacao, req.params.id, req.params.rawMaterialCode]
+  const saldoVal = saldoSistema === undefined ? null : Number(saldoSistema);
+  const notasVal = notasTransito === undefined ? null : Number(notasTransito);
+  const observacaoVal = observacao === undefined ? null : observacao;
+  const { rows: mat } = await db.query('SELECT code FROM raw_materials WHERE code = $1', [req.params.rawMaterialCode]);
+  if (!mat.length) return res.status(404).json({ error: 'Matéria-prima não encontrada.' });
+  // upsert: a matéria-prima pode ter sido cadastrada depois que a contagem já
+  // existia, sem linha em contagem_itens ainda — não pode 404 nesse caso.
+  await db.query(
+    `INSERT INTO contagem_itens (id, contagem_id, raw_material_code, saldo_sistema, saldo_sistema_origem, notas_transito, observacao)
+     VALUES ($1, $2, $3, COALESCE($4, 0), 'manual', COALESCE($5, 0), $6)
+     ON CONFLICT (contagem_id, raw_material_code) DO UPDATE SET
+       saldo_sistema = COALESCE($4, contagem_itens.saldo_sistema),
+       saldo_sistema_origem = CASE WHEN $4 IS NOT NULL THEN 'manual' ELSE contagem_itens.saldo_sistema_origem END,
+       notas_transito = COALESCE($5, contagem_itens.notas_transito),
+       observacao = COALESCE($6, contagem_itens.observacao),
+       updated_at = now()`,
+    [crypto.randomUUID(), req.params.id, req.params.rawMaterialCode, saldoVal, notasVal, observacaoVal]
   );
-  if (!rowCount) return res.status(404).json({ error: 'Item não encontrado nessa contagem.' });
   res.json({ ok: true });
 });
 
@@ -169,7 +182,9 @@ router.get('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, viewContagem,
     'SELECT id FROM contagem_itens WHERE contagem_id = $1 AND raw_material_code = $2',
     [req.params.id, req.params.rawMaterialCode]
   );
-  if (!itemRows.length) return res.status(404).json({ error: 'Item não encontrado nessa contagem.' });
+  // Sem linha em contagem_itens ainda (matéria-prima cadastrada depois da
+  // contagem) não é erro — só significa que ainda não tem nenhum lançamento.
+  if (!itemRows.length) return res.json([]);
   const { rows } = await db.query(
     'SELECT id, valor, tipo, criado_por AS "criadoPor", criado_em AS "criadoEm" FROM contagem_lancamentos WHERE contagem_item_id = $1 ORDER BY criado_em',
     [itemRows[0].id]
@@ -186,15 +201,28 @@ router.post('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, requireEdit(
     'SELECT id FROM contagem_itens WHERE contagem_id = $1 AND raw_material_code = $2',
     [req.params.id, req.params.rawMaterialCode]
   );
-  if (!itemRows.length) return res.status(404).json({ error: 'Item não encontrado nessa contagem.' });
+  let itemId;
+  if (itemRows.length) {
+    itemId = itemRows[0].id;
+  } else {
+    // Matéria-prima cadastrada depois que a contagem já existia: cria a
+    // linha em contagem_itens na hora, em vez de bloquear a contagem física.
+    const { rows: mat } = await db.query('SELECT code FROM raw_materials WHERE code = $1', [req.params.rawMaterialCode]);
+    if (!mat.length) return res.status(404).json({ error: 'Matéria-prima não encontrada.' });
+    itemId = crypto.randomUUID();
+    await db.query(
+      'INSERT INTO contagem_itens (id, contagem_id, raw_material_code) VALUES ($1, $2, $3)',
+      [itemId, req.params.id, req.params.rawMaterialCode]
+    );
+  }
   const id = crypto.randomUUID();
   await db.query(
     'INSERT INTO contagem_lancamentos (id, contagem_item_id, valor, tipo, criado_por) VALUES ($1, $2, $3, $4, $5)',
-    [id, itemRows[0].id, valor, tipo, req.user.username]
+    [id, itemId, valor, tipo, req.user.username]
   );
   const { rows: sumRows } = await db.query(
     "SELECT COALESCE(SUM(valor) FILTER (WHERE tipo = 'PESO'), 0) AS peso, COALESCE(SUM(valor) FILTER (WHERE tipo = 'QUANTIDADE'), 0) AS quantidade FROM contagem_lancamentos WHERE contagem_item_id = $1",
-    [itemRows[0].id]
+    [itemId]
   );
   res.status(201).json({ id, tipo, totalPeso: sumRows[0].peso, totalQuantidade: sumRows[0].quantidade });
 });

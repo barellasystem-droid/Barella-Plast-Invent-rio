@@ -921,7 +921,7 @@ function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
         </thead>
         <tbody>
           {contagem.itens.filter((i) => !filter || i.rawMaterialCode.toLowerCase().includes(filter.toLowerCase()) || i.nome.toLowerCase().includes(filter.toLowerCase())).map((i) => (
-            <tr key={i.id}>
+            <tr key={i.rawMaterialCode}>
               <td style={styles.td}>{i.rawMaterialCode}</td>
               <td style={styles.td}>{i.nome}</td>
               <td style={styles.td}>{i.unidade}</td>
@@ -1093,7 +1093,7 @@ function ContagemMobileTab({ perms }) {
           <input style={styles.input} placeholder="Buscar matéria-prima por código ou nome..." value={busca} onChange={(e) => setBusca(e.target.value)} />
           <div style={{ marginTop: 12, display: 'grid', gap: 8, maxHeight: 480, overflowY: 'auto' }}>
             {itensFiltrados.map((i) => (
-              <button key={i.id} style={{ ...styles.button('ghost'), textAlign: 'left', display: 'flex', justifyContent: 'space-between' }} onClick={() => selecionarItem(i)}>
+              <button key={i.rawMaterialCode} style={{ ...styles.button('ghost'), textAlign: 'left', display: 'flex', justifyContent: 'space-between' }} onClick={() => selecionarItem(i)}>
                 <span>{i.rawMaterialCode} — {i.nome}</span>
                 <span style={{ color: colors.textMuted }}>{formatNumber(i.saldoInventario)} {i.unidade}</span>
               </button>
