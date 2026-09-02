@@ -96,9 +96,9 @@ async function init() {
     );
 
     -- "data" é sempre o dia em que a contagem foi iniciada, no fuso de
-    -- Brasília (nunca informado pelo cliente) — contagem não pode ser feita
-    -- com data retroativa nem futura. Uma contagem com data diferente de hoje
-    -- vira só consulta (ver server/routes/contagens.js, assertContagemDeHoje).
+    -- Brasília (nunca informado pelo cliente). Fica editável em qualquer dia
+    -- enquanto o status não for FINALIZADA (ver server/routes/contagens.js,
+    -- assertContagemAberta).
     CREATE TABLE IF NOT EXISTS contagens (
       id TEXT PRIMARY KEY,
       titulo TEXT NOT NULL,

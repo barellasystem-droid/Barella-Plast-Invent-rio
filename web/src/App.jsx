@@ -492,7 +492,7 @@ function ExplosaoTab({ perms, onNavigate }) {
 
   useEffect(() => { if (contagemId) api.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
   const finalizada = contagem?.status === 'FINALIZADA';
-  const podeEditar = canEdit && contagem?.isToday && !finalizada;
+  const podeEditar = canEdit && !finalizada;
   const filteredBlends = (blends || []).filter((b) => !filter || b.nome.toLowerCase().includes(filter.toLowerCase()));
 
   return (
@@ -518,13 +518,6 @@ function ExplosaoTab({ perms, onNavigate }) {
         <>
           {contagem && finalizada && (
             <Banner tone="success">Essa contagem foi finalizada — as quantidades por estado são somente consulta.</Banner>
-          )}
-          {contagem && !finalizada && !contagem.isToday && (
-            <Banner tone="warning">
-              Essa contagem é do dia {formatDate(contagem.data)} — os componentes/percentuais das misturas
-              continuam editáveis (são a receita, não mudam por período), mas as quantidades por estado
-              dessa contagem são somente consulta.
-            </Banner>
           )}
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
             <input style={{ ...styles.input, maxWidth: 300 }} placeholder="Buscar produto/mistura..." value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -580,7 +573,7 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
   const [filter, setFilter] = useState('');
   const canEdit = perms.materia_prima_produzida?.edit;
   const finalizada = contagem?.status === 'FINALIZADA';
-  const podeEditar = canEdit && contagem?.isToday && !finalizada;
+  const podeEditar = canEdit && !finalizada;
 
   useEffect(() => { if (contagemId) api.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
 
@@ -618,12 +611,6 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
         <>
           {contagem && finalizada && (
             <Banner tone="success">Essa contagem foi finalizada — só é possível consultar os valores dessa contagem.</Banner>
-          )}
-          {contagem && !finalizada && !contagem.isToday && (
-            <Banner tone="warning">
-              Essa contagem é do dia {formatDate(contagem.data)} — só é possível consultar os valores dessa
-              contagem, sem editar.
-            </Banner>
           )}
 
           <div style={styles.card}>
@@ -857,7 +844,7 @@ function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
   if (!contagem) return <p>Carregando...</p>;
 
   const finalizada = contagem.status === 'FINALIZADA';
-  const podeEditar = canEditReport && contagem.isToday && !finalizada;
+  const podeEditar = canEditReport && !finalizada;
 
   return (
     <div>
@@ -877,13 +864,6 @@ function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
           )}
         </Banner>
       )}
-      {!finalizada && !contagem.isToday && (
-        <Banner tone="warning">
-          Essa contagem é do dia {formatDate(contagem.data)} — só é possível consultar. Contagem só pode ser
-          lançada/editada no dia em que foi iniciada.
-        </Banner>
-      )}
-
       <div style={{ ...styles.card, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         {canEditReport && podeEditar && (
           <div>
@@ -970,8 +950,8 @@ function NovaContagemForm({ onCreated }) {
   return (
     <form onSubmit={submit} style={{ ...styles.card, background: '#FAFAFA' }}>
       <p style={{ marginTop: 0, fontSize: 13, color: colors.textMuted }}>
-        Data da contagem: <b>{hojeBrasilia()}</b> (hoje — não dá para escolher outra data; a contagem só pode ser
-        lançada e editada no dia em que for iniciada).
+        Data de abertura: <b>{hojeBrasilia()}</b> (hoje — não dá para escolher outra data). A contagem fica aberta
+        para edição em qualquer dia até ser finalizada.
       </p>
       <div className="bp-form-grid" style={styles.formGrid}>
         <Field label="Título"><input style={styles.input} required value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} /></Field>
@@ -1067,7 +1047,7 @@ function ContagemMobileTab({ perms }) {
 
   const itensFiltrados = contagem ? contagem.itens.filter((i) => !busca || i.rawMaterialCode.toLowerCase().includes(busca.toLowerCase()) || i.nome.toLowerCase().includes(busca.toLowerCase())) : [];
   const finalizada = contagem?.status === 'FINALIZADA';
-  const podeContar = perms.contagem_mobile?.edit && contagem?.isToday && !finalizada;
+  const podeContar = perms.contagem_mobile?.edit && !finalizada;
 
   return (
     <div style={styles.mobileScreen}>
@@ -1083,12 +1063,6 @@ function ContagemMobileTab({ perms }) {
 
       {contagem && finalizada && (
         <Banner tone="success">Essa contagem foi finalizada — só é possível consultar o que já foi contado.</Banner>
-      )}
-      {contagem && !finalizada && !contagem.isToday && (
-        <Banner tone="warning">
-          Essa contagem é do dia {formatDate(contagem.data)} — só é possível consultar o que já foi contado, sem
-          lançar novos valores.
-        </Banner>
       )}
 
       {contagem && !selecionado && (

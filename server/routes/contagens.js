@@ -14,19 +14,14 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 
 
 const viewContagem = requireViewAny(['contagem', 'contagem_mobile']);
 
-// Contagem só pode receber lançamentos/edições no dia em que foi iniciada —
-// "data" é sempre o dia de hoje no fuso de Brasília na criação (nunca
-// informada pelo cliente, ver POST / abaixo), então uma contagem de outro dia
-// é sempre passado, nunca futuro. Também trava quando o status é FINALIZADA,
-// independente da data — quem finalizou não quer que ninguém (nem no mesmo
-// dia) siga lançando por engano; só um administrador reabre (ver PUT /:id).
-// Usado por toda rota que "conta" alguma coisa (lançamento, saldo do
-// sistema, importação, estoque de produto/virgem, estado da mistura);
-// consulta (GET) nunca é bloqueada.
-const HOJE_SQL = "(now() AT TIME ZONE 'America/Sao_Paulo')::date";
-
-async function assertContagemDeHoje(contagemId) {
-  const { rows } = await db.query(`SELECT status, (data = ${HOJE_SQL}) AS "isToday" FROM contagens WHERE id = $1`, [contagemId]);
+// Contagem pode receber lançamentos/edições em qualquer dia enquanto estiver
+// ABERTA — trava só quando o status é FINALIZADA, pra quem finalizou não
+// correr o risco de alguém seguir lançando por engano depois; só um
+// administrador reabre (ver PUT /:id). Usado por toda rota que "conta"
+// alguma coisa (lançamento, saldo do sistema, importação, estoque de
+// produto/virgem, estado da mistura); consulta (GET) nunca é bloqueada.
+async function assertContagemAberta(contagemId) {
+  const { rows } = await db.query('SELECT status FROM contagens WHERE id = $1', [contagemId]);
   if (!rows.length) {
     const err = new Error('Contagem não encontrada.');
     err.status = 404;
@@ -34,11 +29,6 @@ async function assertContagemDeHoje(contagemId) {
   }
   if (rows[0].status === 'FINALIZADA') {
     const err = new Error('Essa contagem já foi finalizada — só é possível consultar. Um administrador pode reabri-la.');
-    err.status = 403;
-    throw err;
-  }
-  if (!rows[0].isToday) {
-    const err = new Error('Essa contagem é de outra data — só é possível consultar, sem lançar ou editar.');
     err.status = 403;
     throw err;
   }
@@ -144,7 +134,7 @@ async function loadItens(contagemId) {
 
 router.get('/:id', requireAuth, viewContagem, async (req, res) => {
   const { rows } = await db.query(
-    `SELECT id, titulo, fornecedor, periodo, status, data, (data = ${HOJE_SQL}) AS "isToday", created_at AS "createdAt"
+    `SELECT id, titulo, fornecedor, periodo, status, data, created_at AS "createdAt"
      FROM contagens WHERE id = $1`,
     [req.params.id]
   );
@@ -154,7 +144,7 @@ router.get('/:id', requireAuth, viewContagem, async (req, res) => {
 });
 
 router.put('/:id/itens/:rawMaterialCode', requireAuth, requireEdit('contagem'), async (req, res) => {
-  await assertContagemDeHoje(req.params.id);
+  await assertContagemAberta(req.params.id);
   const { saldoSistema, notasTransito, observacao } = req.body || {};
   const saldoVal = saldoSistema === undefined ? null : Number(saldoSistema);
   const notasVal = notasTransito === undefined ? null : Number(notasTransito);
@@ -196,7 +186,7 @@ router.get('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, viewContagem,
 });
 
 router.post('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, requireEdit('contagem_mobile'), async (req, res) => {
-  await assertContagemDeHoje(req.params.id);
+  await assertContagemAberta(req.params.id);
   const valor = Number((req.body || {}).valor);
   const tipo = (req.body || {}).tipo === 'QUANTIDADE' ? 'QUANTIDADE' : 'PESO';
   if (Number.isNaN(valor)) return res.status(400).json({ error: 'Valor inválido.' });
@@ -231,7 +221,7 @@ router.post('/:id/itens/:rawMaterialCode/lancamentos', requireAuth, requireEdit(
 });
 
 router.delete('/:id/itens/:rawMaterialCode/lancamentos/:lancamentoId', requireAuth, requireEdit('contagem_mobile'), async (req, res) => {
-  await assertContagemDeHoje(req.params.id);
+  await assertContagemAberta(req.params.id);
   await db.query(
     `DELETE FROM contagem_lancamentos WHERE id = $1 AND contagem_item_id = (
        SELECT id FROM contagem_itens WHERE contagem_id = $2 AND raw_material_code = $3
@@ -278,7 +268,7 @@ async function applyImportRows(contagemId, entries, username) {
 }
 
 router.post('/:id/import', requireAuth, requireEdit('contagem'), upload.single('file'), async (req, res) => {
-  await assertContagemDeHoje(req.params.id);
+  await assertContagemAberta(req.params.id);
   if (!req.file) return res.status(400).json({ error: 'Envie um arquivo XLS/XLSX ou PDF.' });
 
   const name = (req.file.originalname || '').toLowerCase();
@@ -304,7 +294,7 @@ router.post('/:id/import', requireAuth, requireEdit('contagem'), upload.single('
 // prima que faltava, ou corrigiu o código à mão) sem precisar reenviar o
 // arquivo original.
 router.post('/:id/import/retry', requireAuth, requireEdit('contagem'), async (req, res) => {
-  await assertContagemDeHoje(req.params.id);
+  await assertContagemAberta(req.params.id);
   const entries = (req.body || {}).itens;
   if (!Array.isArray(entries) || !entries.length) {
     return res.status(400).json({ error: 'Nenhum item para reprocessar.' });
@@ -356,7 +346,7 @@ router.get('/:id/export', requireAuth, viewContagem, async (req, res) => {
 // quantidade por estado da mistura são um retrato daquela contagem
 // específica (ver server/db.js) — por isso vivem aninhados aqui, e só podem
 // ser editados enquanto a contagem for a de hoje (mesma regra de
-// assertContagemDeHoje usada para lançamento/saldo do sistema/importação).
+// assertContagemAberta usada para lançamento/saldo do sistema/importação).
 
 router.get('/:id/product-stock', requireAuth, viewContagem, async (req, res) => {
   const { rows } = await db.query(
@@ -367,7 +357,7 @@ router.get('/:id/product-stock', requireAuth, viewContagem, async (req, res) => 
 });
 
 router.put('/:id/product-stock/:productCode', requireAuth, requireEdit('materia_prima_produzida'), async (req, res) => {
-  await assertContagemDeHoje(req.params.id);
+  await assertContagemAberta(req.params.id);
   const value = Number((req.body || {}).quantidade);
   if (Number.isNaN(value)) return res.status(400).json({ error: 'Quantidade inválida.' });
   const { rows: prod } = await db.query('SELECT code FROM products WHERE code = $1', [req.params.productCode]);
@@ -390,7 +380,7 @@ router.get('/:id/virgin-stock', requireAuth, viewContagem, async (req, res) => {
 });
 
 router.put('/:id/virgin-stock/:rawMaterialCode', requireAuth, requireEdit('materia_prima_produzida'), async (req, res) => {
-  await assertContagemDeHoje(req.params.id);
+  await assertContagemAberta(req.params.id);
   const value = Number((req.body || {}).quantidade);
   if (Number.isNaN(value)) return res.status(400).json({ error: 'Quantidade inválida.' });
   const { rows: mat } = await db.query('SELECT code FROM raw_materials WHERE code = $1', [req.params.rawMaterialCode]);
@@ -439,7 +429,7 @@ router.get('/:id/blends', requireAuth, viewContagem, async (req, res) => {
 });
 
 router.put('/:id/blends/:blendId/estados/:estado', requireAuth, requireEdit('explosao'), async (req, res) => {
-  await assertContagemDeHoje(req.params.id);
+  await assertContagemAberta(req.params.id);
   const estado = req.params.estado.toUpperCase();
   if (!ESTADOS.includes(estado)) return res.status(400).json({ error: 'Estado inválido.' });
   const value = Number((req.body || {}).quantidade);
