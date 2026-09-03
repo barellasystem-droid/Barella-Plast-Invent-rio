@@ -199,8 +199,43 @@ async function init() {
       PRIMARY KEY (contagem_id, blend_id, estado)
     );
   `);
+  await fixLegacyIntegerColumns();
   await addOnUpdateCascades();
   await migrateToContagemScoped();
+}
+
+// Essas colunas foram criadas como INTEGER em uma versão bem antiga do
+// schema, antes de precisarem guardar casas decimais. "CREATE TABLE IF NOT
+// EXISTS" nunca corrige o tipo de uma coluna de uma tabela que já existe —
+// só afeta tabela nova — então o banco real ficou preso em INTEIRO mesmo
+// depois do código passar a declarar DOUBLE PRECISION aqui. Resultado: um
+// valor inteiro (25685) salvava normalmente, mas qualquer decimal (2.2)
+// era recusado pelo Postgres ("invalid input syntax for type integer"),
+// e a tela dava a impressão de "não salvou"/"zerou depois de sair da tela"
+// porque a gravação nunca tinha acontecido de verdade.
+async function fixLegacyIntegerColumns() {
+  const columns = [
+    ['product_materials', 'consumo_unitario'],
+    ['product_stock', 'quantidade'],
+    ['raw_material_virgin_stock', 'quantidade'],
+    ['blend_components', 'percentual'],
+    ['blend_state_quantities', 'quantidade'],
+    ['contagem_itens', 'saldo_sistema'],
+    ['contagem_itens', 'notas_transito'],
+    ['contagem_lancamentos', 'valor'],
+    ['contagem_product_stock', 'quantidade'],
+    ['contagem_virgin_stock', 'quantidade'],
+    ['contagem_blend_state_quantities', 'quantidade'],
+  ];
+  for (const [table, column] of columns) {
+    const { rows } = await pool.query(
+      `SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+      [table, column]
+    );
+    if (rows.length && rows[0].data_type !== 'double precision') {
+      await pool.query(`ALTER TABLE ${table} ALTER COLUMN ${column} TYPE DOUBLE PRECISION USING ${column}::double precision`);
+    }
+  }
 }
 
 // Permite editar o código de uma matéria-prima ou produto depois de
