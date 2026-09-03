@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api, getToken, setToken } from './api.js';
 import { styles, colors, GlobalStyle } from './styles.jsx';
-import { NAV_ITEMS, NAV_GROUPS, ESTADOS, ESTADO_LABELS, UNIDADES, ROLES, ROLE_LABELS, STATUS_LABELS, statusTone, condicaoTone, formatNumber, formatPercent, formatDate, hojeBrasilia } from './constants.js';
+import { NAV_ITEMS, NAV_GROUPS, ESTADOS, ESTADO_LABELS, UNIDADES, ROLES, ROLE_LABELS, STATUS_LABELS, statusTone, condicaoTone, formatNumber, formatPercent, formatDate, hojeBrasilia, parseDecimal } from './constants.js';
 
 // ---------------------------------------------------------------- shared UI
 
@@ -285,7 +285,10 @@ function ProductForm({ code, rawMaterials, onSaved, onCancel }) {
     e.preventDefault();
     setError('');
     try {
-      const payload = { ...form, materials: materials.filter((m) => m.rawMaterialCode) };
+      const payload = {
+        ...form,
+        materials: materials.filter((m) => m.rawMaterialCode).map((m) => ({ ...m, consumoUnitario: parseDecimal(m.consumoUnitario) })),
+      };
       if (isEdit) await api.products.update(code, payload);
       else await api.products.create(payload);
       onSaved();
@@ -308,7 +311,7 @@ function ProductForm({ code, rawMaterials, onSaved, onCancel }) {
             <option value="">Selecione a matéria-prima</option>
             {(rawMaterials || []).map((rm) => <option key={rm.code} value={rm.code}>{rm.code} — {rm.nome}</option>)}
           </select>
-          <input style={{ ...styles.input, width: 160 }} type="number" step="any" placeholder="Consumo/unid." value={m.consumoUnitario} onChange={(e) => updateRow(i, { consumoUnitario: e.target.value })} />
+          <input style={{ ...styles.input, width: 160 }} type="text" inputMode="decimal" placeholder="Consumo/unid." value={m.consumoUnitario} onChange={(e) => updateRow(i, { consumoUnitario: e.target.value })} />
           <button type="button" style={styles.button('danger')} onClick={() => removeRow(i)}>Remover</button>
         </div>
       ))}
@@ -384,20 +387,28 @@ function CadastrosTab({ perms, pendingRegister, onRegistered }) {
 
 function BlendCard({ blend, rawMaterials, canEdit, podeEditarEstados, contagemId, onChanged }) {
   const [nome, setNome] = useState(blend.nome);
-  const [components, setComponents] = useState(blend.components.length ? blend.components : [{ rawMaterialCode: '', percentual: null }]);
+  // percentualPct guarda o texto exatamente como digitado (em %, não a fração
+  // 0-1 usada pelo backend) — assim o campo nunca reformata o valor no meio
+  // da digitação (o que cortava a vírgula/ponto decimal digitado); a
+  // conversão pra fração só acontece ao salvar, em saveBlend.
+  const [components, setComponents] = useState(
+    blend.components.length
+      ? blend.components.map((c) => ({ ...c, percentualPct: c.percentual == null ? '' : String(c.percentual * 100) }))
+      : [{ rawMaterialCode: '', percentualPct: '' }]
+  );
   const [estados, setEstados] = useState(blend.estados);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   function updateComp(i, patch) { setComponents(components.map((c, idx) => (idx === i ? { ...c, ...patch } : c))); }
-  function addComp() { setComponents([...components, { rawMaterialCode: '', percentual: 0 }]); }
+  function addComp() { setComponents([...components, { rawMaterialCode: '', percentualPct: '0' }]); }
   function removeComp(i) { setComponents(components.filter((_, idx) => idx !== i)); }
 
   async function saveBlend() {
     setSaving(true);
     setError('');
     try {
-      const payload = { nome, components: components.filter((c) => c.rawMaterialCode).map((c, idx, arr) => ({ rawMaterialCode: c.rawMaterialCode, percentual: idx === arr.length - 1 ? null : Number(c.percentual) || 0 })) };
+      const payload = { nome, components: components.filter((c) => c.rawMaterialCode).map((c, idx, arr) => ({ rawMaterialCode: c.rawMaterialCode, percentual: idx === arr.length - 1 ? null : parseDecimal(c.percentualPct) / 100 })) };
       if (blend.id) await api.blends.update(blend.id, payload);
       else { const created = await api.blends.create(payload); blend.id = created.id; }
       onChanged();
@@ -431,7 +442,7 @@ function BlendCard({ blend, rawMaterials, canEdit, podeEditarEstados, contagemId
             {isLast ? (
               <span style={{ width: 140, color: colors.textMuted, fontSize: 13 }}>resto (100% - outros)</span>
             ) : (
-              <input style={{ ...styles.input, width: 100 }} type="number" step="any" disabled={!canEdit} placeholder="% do total" value={c.percentual == null ? '' : c.percentual * 100} onChange={(e) => updateComp(i, { percentual: Number(e.target.value) / 100 })} />
+              <input style={{ ...styles.input, width: 100 }} type="text" inputMode="decimal" disabled={!canEdit} placeholder="% do total" value={c.percentualPct} onChange={(e) => updateComp(i, { percentualPct: e.target.value })} />
             )}
             {canEdit && <button type="button" style={styles.button('danger')} onClick={() => removeComp(i)}>Remover</button>}
           </div>
@@ -445,12 +456,12 @@ function BlendCard({ blend, rawMaterials, canEdit, podeEditarEstados, contagemId
           <Field key={e} label={ESTADO_LABELS[e]}>
             <input
               style={styles.input}
-              type="number"
-              step="any"
+              type="text"
+              inputMode="decimal"
               disabled={!podeEditarEstados || !blend.id}
               value={estados[e] || 0}
               onChange={(ev) => setEstados({ ...estados, [e]: ev.target.value })}
-              onBlur={(ev) => saveEstado(e, Number(ev.target.value) || 0)}
+              onBlur={(ev) => saveEstado(e, parseDecimal(ev.target.value))}
             />
           </Field>
         ))}
@@ -555,11 +566,11 @@ function EditableNumberCell({ value, disabled, onSave, width = 140 }) {
   return (
     <input
       style={{ ...styles.input, width }}
-      type="number" step="any"
+      type="text" inputMode="decimal"
       disabled={disabled}
       value={local}
       onChange={(e) => { setDirty(true); setLocal(e.target.value); }}
-      onBlur={async (e) => { setDirty(false); await onSave(Number(e.target.value) || 0); }}
+      onBlur={async (e) => { setDirty(false); await onSave(parseDecimal(e.target.value)); }}
     />
   );
 }
@@ -1050,8 +1061,8 @@ function ContagemMobileTab({ perms }) {
   }
 
   async function adicionar() {
-    const v = Number(valor);
-    if (!v && v !== 0) return;
+    if (valor.trim() === '') return;
+    const v = parseDecimal(valor);
     // Peso e Quantidade são só dois jeitos de registrar a mesma contagem
     // física (com balança ou contando peça por peça) — livre pra qualquer
     // matéria-prima, e os dois somam no Saldo do Inventário.
@@ -1130,7 +1141,7 @@ function ContagemMobileTab({ perms }) {
                 </button>
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <input style={{ ...styles.input, fontSize: 20, textAlign: 'center' }} type="number" inputMode="decimal" step="any"
+                <input style={{ ...styles.input, fontSize: 20, textAlign: 'center' }} type="text" inputMode="decimal"
                   placeholder={tipo === 'PESO' ? '+ valor em KG' : '+ quantidade em UN'} value={valor} onChange={(e) => setValor(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') adicionar(); }} />
                 <button style={styles.button('primary')} onClick={adicionar}>Somar</button>

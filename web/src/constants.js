@@ -45,6 +45,17 @@ export function condicaoTone(condicao) {
   return 'default';
 }
 
+// <input type="number"> só aceita ponto como separador decimal — quem digita
+// no padrão brasileiro (vírgula) tem o caractere recusado pelo navegador ou
+// vê o campo virar inválido/vazio. Os campos numéricos usam type="text" +
+// inputMode="decimal" (teclado numérico no celular) e passam o valor digitado
+// por essa função, que aceita tanto "35877,25" quanto "35877.25".
+export function parseDecimal(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  const n = Number(String(value).trim().replace(',', '.'));
+  return Number.isNaN(n) ? 0 : n;
+}
+
 export function formatNumber(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return '-';
   return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
