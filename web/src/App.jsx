@@ -32,8 +32,13 @@ function Banner({ tone = 'default', children, onClose }) {
 function useAsyncList(loader, deps = []) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  // Precisa devolver a Promise (não só disparar o fetch) — quem salva um
+  // valor e chama reload() logo em seguida precisa poder dar await nela
+  // antes de considerar o campo "não sujo" de novo, senão o valor exibido
+  // volta a refletir o dado antigo por uma fração de segundo (e, se o
+  // usuário sair da tela nesse meio-tempo, fica assim).
   const reload = useCallback(() => {
-    loader().then(setData).catch((e) => setError(e.message));
+    return loader().then(setData).catch((e) => setError(e.message));
   }, deps); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { reload(); }, [reload]);
   return [data, reload, error];
@@ -556,6 +561,12 @@ function ExplosaoTab({ perms, onNavigate }) {
 // edição (campo "sujo"). Um <input defaultValue=... onBlur=...> (não
 // controlado) não atualiza sozinho quando os dados são recarregados depois de
 // salvar, dando a impressão de que o valor lançado sumiu/não salvou.
+// Importante: só marca como "não sujo" DEPOIS que onSave (que inclui salvar
+// E recarregar os dados) terminar. Se marcasse antes, o efeito abaixo via o
+// campo como "não sujo" e reescrevia o valor digitado com o dado antigo
+// (ainda não atualizado) por uma fração de segundo — e, se a pessoa mudasse
+// de tela nesse meio-tempo, o campo ficava com esse valor antigo (geralmente
+// 0) em vez do que tinha acabado de digitar.
 function EditableNumberCell({ value, disabled, onSave, width = 140 }) {
   const [local, setLocal] = useState(value);
   const [dirty, setDirty] = useState(false);
@@ -569,7 +580,7 @@ function EditableNumberCell({ value, disabled, onSave, width = 140 }) {
       disabled={disabled}
       value={local}
       onChange={(e) => { setDirty(true); setLocal(e.target.value); }}
-      onBlur={async (e) => { setDirty(false); await onSave(parseDecimal(e.target.value)); }}
+      onBlur={async (e) => { await onSave(parseDecimal(e.target.value)); setDirty(false); }}
     />
   );
 }
@@ -586,7 +597,7 @@ function EditableTextCell({ value, disabled, onSave, width = 160 }) {
       disabled={disabled}
       value={local}
       onChange={(e) => { setDirty(true); setLocal(e.target.value); }}
-      onBlur={async (e) => { setDirty(false); await onSave(e.target.value); }}
+      onBlur={async (e) => { await onSave(e.target.value); setDirty(false); }}
     />
   );
 }
@@ -607,7 +618,7 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
 
   useEffect(() => { if (contagemId) api.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
 
-  function refreshAll() { reloadStock(); reloadVirgin(); reloadSummary(); }
+  async function refreshAll() { await Promise.all([reloadStock(), reloadVirgin(), reloadSummary()]); }
 
   const stockByCode = Object.fromEntries((stock || []).map((s) => [s.productCode, s.quantidade]));
   const virginByCode = Object.fromEntries((virginStock || []).map((s) => [s.rawMaterialCode, s.quantidade]));
@@ -657,7 +668,7 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
                       <EditableNumberCell
                         value={stockByCode[p.code] || 0}
                         disabled={!podeEditar}
-                        onSave={async (v) => { await api.contagens.productStock.set(contagemId, p.code, v); refreshAll(); }}
+                        onSave={async (v) => { await api.contagens.productStock.set(contagemId, p.code, v); await refreshAll(); }}
                       />
                     </td>
                   </tr>
@@ -679,7 +690,7 @@ function MateriaPrimaProduzidaTab({ perms, onNavigate }) {
                       <EditableNumberCell
                         value={virginByCode[m.code] || 0}
                         disabled={!podeEditar}
-                        onSave={async (v) => { await api.contagens.virginStock.set(contagemId, m.code, v); refreshAll(); }}
+                        onSave={async (v) => { await api.contagens.virginStock.set(contagemId, m.code, v); await refreshAll(); }}
                       />
                     </td>
                   </tr>
@@ -831,13 +842,13 @@ function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
   const canEditReport = perms.contagem?.edit;
 
   const load = useCallback(() => {
-    api.contagens.get(id).then(setContagem).catch((e) => setError(e.message));
+    return api.contagens.get(id).then(setContagem).catch((e) => setError(e.message));
   }, [id]);
   useEffect(() => { load(); }, [load, refreshKey]);
 
   async function saveItem(code, patch) {
     await api.contagens.setItem(id, code, patch);
-    load();
+    await load();
   }
 
   async function handleFile(e) {
