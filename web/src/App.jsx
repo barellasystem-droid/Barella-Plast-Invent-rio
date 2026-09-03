@@ -541,9 +541,12 @@ function ExplosaoTab({ perms, onNavigate }) {
 // ---------------------------------------------------- Matéria-Prima Produzida
 
 // Input controlado que mantém o valor salvo visível mesmo depois de recarregar
-// os dados (ex: ao trocar de contagem ou voltar pra essa aba) — só não
-// sobrescreve o que a pessoa está digitando no meio da edição (campo "sujo").
-function EditableNumberCell({ value, disabled, onSave }) {
+// os dados (ex: ao trocar de contagem ou voltar pra essa aba, ou depois de
+// salvar) — só não sobrescreve o que a pessoa está digitando no meio da
+// edição (campo "sujo"). Um <input defaultValue=... onBlur=...> (não
+// controlado) não atualiza sozinho quando os dados são recarregados depois de
+// salvar, dando a impressão de que o valor lançado sumiu/não salvou.
+function EditableNumberCell({ value, disabled, onSave, width = 140 }) {
   const [local, setLocal] = useState(value);
   const [dirty, setDirty] = useState(false);
 
@@ -551,12 +554,29 @@ function EditableNumberCell({ value, disabled, onSave }) {
 
   return (
     <input
-      style={{ ...styles.input, width: 140 }}
+      style={{ ...styles.input, width }}
       type="number" step="any"
       disabled={disabled}
       value={local}
       onChange={(e) => { setDirty(true); setLocal(e.target.value); }}
       onBlur={async (e) => { setDirty(false); await onSave(Number(e.target.value) || 0); }}
+    />
+  );
+}
+
+function EditableTextCell({ value, disabled, onSave, width = 160 }) {
+  const [local, setLocal] = useState(value);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => { if (!dirty) setLocal(value); }, [value, dirty]);
+
+  return (
+    <input
+      style={{ ...styles.input, width }}
+      disabled={disabled}
+      value={local}
+      onChange={(e) => { setDirty(true); setLocal(e.target.value); }}
+      onBlur={async (e) => { setDirty(false); await onSave(e.target.value); }}
     />
   );
 }
@@ -906,8 +926,8 @@ function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
               <td style={styles.td}>{i.nome}</td>
               <td style={styles.td}>{i.unidade}</td>
               <td style={styles.td}>
-                <input style={{ ...styles.input, width: 110 }} type="number" step="any" disabled={!podeEditar}
-                  defaultValue={i.saldoSistema} onBlur={(e) => saveItem(i.rawMaterialCode, { saldoSistema: Number(e.target.value) || 0 })} />
+                <EditableNumberCell width={110} value={i.saldoSistema} disabled={!podeEditar}
+                  onSave={(v) => saveItem(i.rawMaterialCode, { saldoSistema: v })} />
               </td>
               <td style={styles.td}>
                 {formatNumber(i.saldoInventario)}
@@ -916,15 +936,15 @@ function ContagemDetail({ id, perms, isAdmin, onGoRegister, refreshKey }) {
                 </div>
               </td>
               <td style={styles.td}>
-                <input style={{ ...styles.input, width: 100 }} type="number" step="any" disabled={!podeEditar}
-                  defaultValue={i.notasTransito} onBlur={(e) => saveItem(i.rawMaterialCode, { notasTransito: Number(e.target.value) || 0 })} />
+                <EditableNumberCell width={100} value={i.notasTransito} disabled={!podeEditar}
+                  onSave={(v) => saveItem(i.rawMaterialCode, { notasTransito: v })} />
               </td>
               <td style={styles.td}>{formatNumber(i.divergencia)}</td>
               <td style={styles.td}>{formatPercent(i.divergenciaPercentual)}</td>
               <td style={styles.td}><Badge tone={condicaoTone(i.condicao)}>{i.condicao}</Badge></td>
               <td style={styles.td}>
-                <input style={{ ...styles.input, width: 160 }} disabled={!podeEditar}
-                  defaultValue={i.observacao || ''} onBlur={(e) => saveItem(i.rawMaterialCode, { observacao: e.target.value })} />
+                <EditableTextCell width={160} value={i.observacao || ''} disabled={!podeEditar}
+                  onSave={(v) => saveItem(i.rawMaterialCode, { observacao: v })} />
               </td>
             </tr>
           ))}
