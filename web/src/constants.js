@@ -47,12 +47,17 @@ export function condicaoTone(condicao) {
 
 // <input type="number"> só aceita ponto como separador decimal — quem digita
 // no padrão brasileiro (vírgula) tem o caractere recusado pelo navegador ou
-// vê o campo virar inválido/vazio. Os campos numéricos usam type="text" +
-// inputMode="decimal" (teclado numérico no celular) e passam o valor digitado
-// por essa função, que aceita tanto "35877,25" quanto "35877.25".
+// vê o campo virar inválido/vazio. Os campos numéricos usam type="text" e
+// passam o valor digitado por essa função, que aceita tanto "35877,25"
+// quanto "35877.25" — e também o formato completo brasileiro com separador
+// de milhar, "35.877,254454": se tem vírgula, todo ponto é tratado como
+// separador de milhar (removido) antes de trocar a vírgula por ponto decimal;
+// sem vírgula, o ponto é o próprio separador decimal (ex: "35877.25").
 export function parseDecimal(value) {
   if (value === null || value === undefined || value === '') return 0;
-  const n = Number(String(value).trim().replace(',', '.'));
+  let s = String(value).trim();
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const n = Number(s);
   return Number.isNaN(n) ? 0 : n;
 }
 
