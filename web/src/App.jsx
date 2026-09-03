@@ -311,7 +311,7 @@ function ProductForm({ code, rawMaterials, onSaved, onCancel }) {
             <option value="">Selecione a matéria-prima</option>
             {(rawMaterials || []).map((rm) => <option key={rm.code} value={rm.code}>{rm.code} — {rm.nome}</option>)}
           </select>
-          <input style={{ ...styles.input, width: 160 }} type="text" inputMode="decimal" placeholder="Consumo/unid." value={m.consumoUnitario} onChange={(e) => updateRow(i, { consumoUnitario: e.target.value })} />
+          <input style={{ ...styles.input, width: 160 }} type="text" placeholder="Consumo/unid." value={m.consumoUnitario} onChange={(e) => updateRow(i, { consumoUnitario: e.target.value })} />
           <button type="button" style={styles.button('danger')} onClick={() => removeRow(i)}>Remover</button>
         </div>
       ))}
@@ -442,7 +442,7 @@ function BlendCard({ blend, rawMaterials, canEdit, podeEditarEstados, contagemId
             {isLast ? (
               <span style={{ width: 140, color: colors.textMuted, fontSize: 13 }}>resto (100% - outros)</span>
             ) : (
-              <input style={{ ...styles.input, width: 100 }} type="text" inputMode="decimal" disabled={!canEdit} placeholder="% do total" value={c.percentualPct} onChange={(e) => updateComp(i, { percentualPct: e.target.value })} />
+              <input style={{ ...styles.input, width: 100 }} type="text" disabled={!canEdit} placeholder="% do total" value={c.percentualPct} onChange={(e) => updateComp(i, { percentualPct: e.target.value })} />
             )}
             {canEdit && <button type="button" style={styles.button('danger')} onClick={() => removeComp(i)}>Remover</button>}
           </div>
@@ -457,7 +457,6 @@ function BlendCard({ blend, rawMaterials, canEdit, podeEditarEstados, contagemId
             <input
               style={styles.input}
               type="text"
-              inputMode="decimal"
               disabled={!podeEditarEstados || !blend.id}
               value={estados[e] || 0}
               onChange={(ev) => setEstados({ ...estados, [e]: ev.target.value })}
@@ -566,7 +565,7 @@ function EditableNumberCell({ value, disabled, onSave, width = 140 }) {
   return (
     <input
       style={{ ...styles.input, width }}
-      type="text" inputMode="decimal"
+      type="text"
       disabled={disabled}
       value={local}
       onChange={(e) => { setDirty(true); setLocal(e.target.value); }}
@@ -1141,7 +1140,7 @@ function ContagemMobileTab({ perms }) {
                 </button>
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <input style={{ ...styles.input, fontSize: 20, textAlign: 'center' }} type="text" inputMode="decimal"
+                <input style={{ ...styles.input, fontSize: 20, textAlign: 'center' }} type="text"
                   placeholder={tipo === 'PESO' ? '+ valor em KG' : '+ quantidade em UN'} value={valor} onChange={(e) => setValor(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') adicionar(); }} />
                 <button style={styles.button('primary')} onClick={adicionar}>Somar</button>
