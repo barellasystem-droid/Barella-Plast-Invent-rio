@@ -227,13 +227,25 @@ async function fixLegacyIntegerColumns() {
     ['contagem_virgin_stock', 'quantidade'],
     ['contagem_blend_state_quantities', 'quantidade'],
   ];
+  // Antes tentava só quando um SELECT prévio em information_schema dizia que
+  // a coluna não era double precision ainda — e esse SELECT, por algum
+  // motivo (schema/search_path do Supabase, cache do pooler em modo
+  // transaction), vinha vazio ou desatualizado em produção: o ALTER nunca
+  // rodava de verdade, e o erro "invalid input syntax for type integer"
+  // continuou nos logs dias depois desse "fix" já estar publicado. ALTER
+  // COLUMN TYPE para o mesmo tipo que a coluna já tem é uma operação sem
+  // efeito (Postgres só reescreve a tabela quando o tipo muda de verdade),
+  // então é seguro tentar sempre, sem depender daquele SELECT. Cada coluna
+  // roda isolada: uma falha (ex: permissão) fica só um log, não derruba
+  // `db.ready` — antes uma única coluna travando aqui tirava a API inteira
+  // do ar, já que toda rota espera essa promise antes de tocar no banco.
   for (const [table, column] of columns) {
-    const { rows } = await pool.query(
-      `SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
-      [table, column]
-    );
-    if (rows.length && rows[0].data_type !== 'double precision') {
-      await pool.query(`ALTER TABLE ${table} ALTER COLUMN ${column} TYPE DOUBLE PRECISION USING ${column}::double precision`);
+    try {
+      await pool.query(
+        `ALTER TABLE public.${table} ALTER COLUMN ${column} TYPE DOUBLE PRECISION USING ${column}::double precision`
+      );
+    } catch (err) {
+      console.error(`fixLegacyIntegerColumns: falha ao corrigir ${table}.${column}:`, err.message);
     }
   }
 }
