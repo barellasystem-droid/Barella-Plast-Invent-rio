@@ -1,6 +1,7 @@
 {
   "buildCommand": "npm run build:web",
   "outputDirectory": "web/dist",
+  "regions": ["gru1"],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" }
   ]

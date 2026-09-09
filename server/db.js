@@ -198,10 +198,35 @@ async function init() {
       updated_by TEXT,
       PRIMARY KEY (contagem_id, blend_id, estado)
     );
+
+    -- Marca migrações de correção (fixLegacyIntegerColumns, addOnUpdateCascades)
+    -- já aplicadas, para runOnce() poder pular o trabalho pesado delas depois
+    -- da primeira vez — ver runOnce() logo abaixo.
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ DEFAULT now()
+    );
   `);
-  await fixLegacyIntegerColumns();
-  await addOnUpdateCascades();
+  await runOnce('fix_legacy_integer_columns_v1', fixLegacyIntegerColumns);
+  await runOnce('add_on_update_cascades_v1', addOnUpdateCascades);
   await migrateToContagemScoped();
+}
+
+// fixLegacyIntegerColumns (11 ALTER TABLE) e addOnUpdateCascades (24
+// consultas: SELECT + DROP + ADD CONSTRAINT por chave estrangeira) só
+// precisam rodar uma vez de verdade — depois disso são só trabalho
+// desperdiçado. Sem esse controle, TODO cold start (função nova subindo na
+// Vercel) reaplicava as duas de novo, do zero, antes de conseguir responder
+// à primeira requisição — é isso que deixava o primeiro clique depois de um
+// tempo parado sensivelmente mais lento. Uma tabela com uma linha por
+// migração já aplicada (em vez de inspecionar o schema do banco, que já se
+// mostrou não confiável atrás do pooler — ver o comentário de
+// fixLegacyIntegerColumns) resolve com uma única consulta barata.
+async function runOnce(name, fn) {
+  const { rows } = await pool.query('SELECT 1 FROM schema_migrations WHERE name = $1', [name]);
+  if (rows.length) return;
+  await fn();
+  await pool.query('INSERT INTO schema_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING', [name]);
 }
 
 // Essas colunas foram criadas como INTEGER em uma versão bem antiga do
