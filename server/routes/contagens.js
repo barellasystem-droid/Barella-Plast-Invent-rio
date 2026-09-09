@@ -154,8 +154,13 @@ router.put('/:id/itens/:rawMaterialCode', requireAuth, requireEdit('contagem'), 
   // upsert: a matéria-prima pode ter sido cadastrada depois que a contagem já
   // existia, sem linha em contagem_itens ainda — não pode 404 nesse caso.
   await db.query(
+    // COALESCE($4, 0) força o Postgres a inferir o tipo do parâmetro pelo
+    // literal "0" (integer), não pela coluna de destino (double precision) —
+    // por isso qualquer valor com casas decimais era recusado mesmo com o
+    // schema certo. O cast explícito (0::double precision) resolve a
+    // inferência de tipo do parâmetro corretamente.
     `INSERT INTO contagem_itens (id, contagem_id, raw_material_code, saldo_sistema, saldo_sistema_origem, notas_transito, observacao)
-     VALUES ($1, $2, $3, COALESCE($4, 0), 'manual', COALESCE($5, 0), $6)
+     VALUES ($1, $2, $3, COALESCE($4, 0::double precision), 'manual', COALESCE($5, 0::double precision), $6)
      ON CONFLICT (contagem_id, raw_material_code) DO UPDATE SET
        saldo_sistema = COALESCE($4, contagem_itens.saldo_sistema),
        saldo_sistema_origem = CASE WHEN $4 IS NOT NULL THEN 'manual' ELSE contagem_itens.saldo_sistema_origem END,
