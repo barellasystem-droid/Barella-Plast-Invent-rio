@@ -7,6 +7,7 @@ const { requireAuth, requireEdit, requireViewAny } = require('../auth');
 const { computeDivergence } = require('../calc');
 const { parseXlsxBuffer, parsePdfBuffer, normalizeCode } = require('../import-parsers');
 const { getRawMaterialSummary } = require('../materiaPrimaProduzida');
+const { buildContagemWorkbook } = require('../export-workbook');
 const { ESTADOS } = require('../constants');
 
 const router = express.Router();
@@ -130,6 +131,34 @@ async function loadItens(contagemId) {
     const { divergencia, percentual, condicao } = computeDivergence(r.saldoSistema, saldoInventario, r.notasTransito);
     return { ...r, materiaPrimaProduzida, saldoInventario, divergencia, divergenciaPercentual: percentual, condicao };
   });
+}
+
+// Mesma consulta usada por GET /:id/blends — receita da mistura (global) +
+// quantidade por estado (presa a essa contagem). Compartilhada com o export,
+// que precisa da mesma estrutura para regenerar a aba EXPLOSÃO.
+async function loadBlendsForContagem(contagemId) {
+  const { rows: blends } = await db.query('SELECT id, nome FROM blends ORDER BY nome');
+  const { rows: components } = await db.query(
+    `SELECT id, blend_id AS "blendId", raw_material_code AS "rawMaterialCode", percentual, ordem
+     FROM blend_components ORDER BY blend_id, ordem`
+  );
+  const { rows: states } = await db.query(
+    'SELECT blend_id AS "blendId", estado, quantidade FROM contagem_blend_state_quantities WHERE contagem_id = $1',
+    [contagemId]
+  );
+  const componentsByBlend = {};
+  for (const c of components) (componentsByBlend[c.blendId] = componentsByBlend[c.blendId] || []).push(c);
+  const statesByBlend = {};
+  for (const s of states) (statesByBlend[s.blendId] = statesByBlend[s.blendId] || {})[s.estado] = s.quantidade;
+
+  return blends.map((b) => ({
+    ...b,
+    components: componentsByBlend[b.id] || [],
+    estados: ESTADOS.reduce((acc, e) => {
+      acc[e] = (statesByBlend[b.id] || {})[e] || 0;
+      return acc;
+    }, {}),
+  }));
 }
 
 router.get('/:id', requireAuth, viewContagem, async (req, res) => {
@@ -308,38 +337,42 @@ router.post('/:id/import/retry', requireAuth, requireEdit('contagem'), async (re
   res.json(result);
 });
 
-// Layout replicando a planilha original (aba RELATÓRIO DE CONTAGEM): título +
-// data da contagem na linha 1, cabeçalho igual ao do anexo na linha 2, itens
-// em seguida, e por fim a linha de assinatura ("MONDIAL - GESTÃO DE
-// TERCEIROS" / "COORD. ADMINISTRATIVO FORNECEDOR") que o fornecedor assina
-// manualmente depois de impresso.
+// Replica as 4 abas da planilha original (PLANILHA MESTRE, EXPLOSÃO,
+// RELATÓRIO DE CONTAGEM, Plan1) com fórmulas de Excel de verdade — não só a
+// aba Relatório com valores já calculados (ver server/export-workbook.js
+// para o motivo de cada escolha de fórmula). Os dados de BOM/mistura/estoque
+// vêm sempre do snapshot dessa contagem específica (contagem_product_stock,
+// contagem_virgin_stock, contagem_blend_state_quantities — ver server/db.js).
 router.get('/:id/export', requireAuth, viewContagem, async (req, res) => {
   const { rows: contagemRows } = await db.query('SELECT titulo, data::text AS data FROM contagens WHERE id = $1', [req.params.id]);
   if (!contagemRows.length) return res.status(404).json({ error: 'Contagem não encontrada.' });
-  const itens = await loadItens(req.params.id);
+
+  const [itens, rawMaterialsRes, productsRes, productMaterialsRes, productStockRes, virginStockRes, blends] = await Promise.all([
+    loadItens(req.params.id),
+    db.query('SELECT code, nome, unidade FROM raw_materials ORDER BY code'),
+    db.query('SELECT code, nome FROM products ORDER BY code'),
+    db.query(
+      `SELECT product_code AS "productCode", raw_material_code AS "rawMaterialCode", consumo_unitario AS "consumoUnitario"
+       FROM product_materials`
+    ),
+    db.query('SELECT product_code AS "productCode", quantidade FROM contagem_product_stock WHERE contagem_id = $1', [req.params.id]),
+    db.query('SELECT raw_material_code AS "rawMaterialCode", quantidade FROM contagem_virgin_stock WHERE contagem_id = $1', [req.params.id]),
+    loadBlendsForContagem(req.params.id),
+  ]);
+
   const [ano, mes, dia] = contagemRows[0].data.split('-');
   const dataFormatada = `${dia}/${mes}/${ano}`;
 
-  const header = [
-    'CÓDIGO', 'DESCRIÇÃO', 'SALDO DO SISTEMA', 'SALDO DO INVENTÁRIO', 'NOTAS EM TRÂNSITO',
-    'DIVERGÊNCIA', 'UNIDADE DE REFERÊNCIA', 'DIVERGÊNCIA PORCENTAGEM - %', 'CONDIÇÃO', 'OBSERVAÇÃO',
-  ];
-  const linhas = itens.map((i) => [
-    i.rawMaterialCode, i.nome, i.saldoSistema, i.saldoInventario, i.notasTransito,
-    i.divergencia, i.unidade, i.divergenciaPercentual, i.condicao, i.observacao || '',
-  ]);
-
-  const aoa = [
-    ['RELATÓRIO DE CONTAGEM DE INVENTÁRIO - BARELLA', '', '', '', '', '', '', dataFormatada],
-    header,
-    ...linhas,
-    [],
-    ['', 'MONDIAL - GESTÃO DE TERCEIROS', '', '', '', 'COORD. ADMINISTRATIVO FORNECEDOR'],
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!merges'] = [{ s: { r: aoa.length - 1, c: 5 }, e: { r: aoa.length - 1, c: 9 } }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Contagem');
+  const wb = buildContagemWorkbook({
+    dataFormatada,
+    itens,
+    rawMaterials: rawMaterialsRes.rows,
+    products: productsRes.rows,
+    productMaterials: productMaterialsRes.rows,
+    productStock: productStockRes.rows,
+    virginStock: virginStockRes.rows,
+    blends,
+  });
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${contagemRows[0].titulo.replace(/[^a-z0-9]/gi, '_')}.xlsx"`);
@@ -407,30 +440,8 @@ router.get('/:id/summary', requireAuth, viewContagem, async (req, res) => {
 // Receita da mistura (nome/componentes/percentuais) continua global — só a
 // quantidade lançada por estado é presa a essa contagem.
 router.get('/:id/blends', requireAuth, viewContagem, async (req, res) => {
-  const { rows: blends } = await db.query('SELECT id, nome FROM blends ORDER BY nome');
-  const { rows: components } = await db.query(
-    `SELECT id, blend_id AS "blendId", raw_material_code AS "rawMaterialCode", percentual, ordem
-     FROM blend_components ORDER BY blend_id, ordem`
-  );
-  const { rows: states } = await db.query(
-    'SELECT blend_id AS "blendId", estado, quantidade FROM contagem_blend_state_quantities WHERE contagem_id = $1',
-    [req.params.id]
-  );
-  const componentsByBlend = {};
-  for (const c of components) (componentsByBlend[c.blendId] = componentsByBlend[c.blendId] || []).push(c);
-  const statesByBlend = {};
-  for (const s of states) (statesByBlend[s.blendId] = statesByBlend[s.blendId] || {})[s.estado] = s.quantidade;
-
-  res.json(
-    blends.map((b) => ({
-      ...b,
-      components: componentsByBlend[b.id] || [],
-      estados: ESTADOS.reduce((acc, e) => {
-        acc[e] = (statesByBlend[b.id] || {})[e] || 0;
-        return acc;
-      }, {}),
-    }))
-  );
+  const blends = await loadBlendsForContagem(req.params.id);
+  res.json(blends);
 });
 
 router.put('/:id/blends/:blendId/estados/:estado', requireAuth, requireEdit('explosao'), async (req, res) => {
