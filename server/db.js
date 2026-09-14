@@ -363,7 +363,29 @@ async function init() {
   `);
   await runOnce('fix_legacy_integer_columns_v1', fixLegacyIntegerColumns);
   await runOnce('add_on_update_cascades_v1', addOnUpdateCascades);
+  await runOnce('seed_colormaq_permissions_v1', seedColormaqPermissions);
   await migrateToContagemScoped();
+}
+
+// Bancos que já existiam antes da Colormaq entrar não ganham as novas linhas
+// de permissions.tab_id sozinhos (DEFAULT_PERMISSIONS só é aplicado por
+// server/seed.js, e só numa vez, em banco vazio) — sem isso, ninguém
+// (nem admin) veria as abas novas até alguém abrir Permissões e marcar na
+// mão. ON CONFLICT DO NOTHING preserva o que um admin já tiver editado.
+async function seedColormaqPermissions() {
+  const { DEFAULT_PERMISSIONS } = require('./constants');
+  const colormaqTabs = Object.keys(DEFAULT_PERMISSIONS).filter((t) => t.startsWith('colormaq_'));
+  for (const tabId of colormaqTabs) {
+    const cfg = DEFAULT_PERMISSIONS[tabId];
+    const allRoles = new Set([...cfg.view, ...cfg.edit]);
+    for (const role of allRoles) {
+      await pool.query(
+        `INSERT INTO permissions (tab_id, role, can_view, can_edit) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (tab_id, role) DO NOTHING`,
+        [tabId, role, cfg.view.includes(role) ? 1 : 0, cfg.edit.includes(role) ? 1 : 0]
+      );
+    }
+  }
 }
 
 // fixLegacyIntegerColumns (11 ALTER TABLE) e addOnUpdateCascades (24

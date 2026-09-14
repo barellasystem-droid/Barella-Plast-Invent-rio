@@ -9,11 +9,19 @@ export const NAV_ITEMS = [
   { id: 'materia_prima_produzida', label: 'Matéria Prima Processada', group: 'mondial' },
   { id: 'contagem', label: 'Relatório de Contagem', group: 'mondial' },
   { id: 'contagem_mobile', label: 'Contagem', group: 'mondial' },
+  { id: 'colormaq_cadastros', label: 'Cadastros', group: 'colormaq' },
+  { id: 'colormaq_explosao', label: 'Explosão', group: 'colormaq' },
+  { id: 'colormaq_materia_prima_produzida', label: 'Matéria Prima Processada', group: 'colormaq' },
+  { id: 'colormaq_contagem', label: 'Relatório de Contagem', group: 'colormaq' },
+  { id: 'colormaq_contagem_mobile', label: 'Contagem', group: 'colormaq' },
   { id: 'usuarios', label: 'Usuários' },
   { id: 'permissoes', label: 'Permissões' },
 ];
 
-export const NAV_GROUPS = { mondial: 'Mondial' };
+export const NAV_GROUPS = { mondial: 'Mondial', colormaq: 'Colormaq' };
+
+export const ESTADOS_COLORMAQ = ['MISTURA', 'MOIDO'];
+export const ESTADO_LABELS_COLORMAQ = { MISTURA: 'Mistura', MOIDO: 'Moído' };
 
 export const ESTADOS = ['BORRA', 'MISTURA', 'GALHO', 'PECA', 'VARREDURA', 'MOIDO', 'SUCATA', 'MAQUINA'];
 export const ESTADO_LABELS = {

@@ -2,10 +2,11 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { api, getToken, setToken } from './api.js';
 import { styles, colors, GlobalStyle } from './styles.jsx';
 import { NAV_ITEMS, NAV_GROUPS, ESTADOS, ESTADO_LABELS, UNIDADES, ROLES, ROLE_LABELS, STATUS_LABELS, statusTone, condicaoTone, formatNumber, formatPercent, formatDate, hojeBrasilia, parseDecimal } from './constants.js';
+import { ColormaqCadastrosTab, ColormaqExplosaoTab, ColormaqMateriaPrimaProcessadaTab, ColormaqContagemTab, ColormaqContagemMobileTab } from './ColormaqApp.jsx';
 
 // ---------------------------------------------------------------- shared UI
 
-function Field({ label, children }) {
+export function Field({ label, children }) {
   return (
     <div>
       <label style={styles.label}>{label}</label>
@@ -14,11 +15,11 @@ function Field({ label, children }) {
   );
 }
 
-function Badge({ tone, children }) {
+export function Badge({ tone, children }) {
   return <span style={styles.badge(tone)}>{children}</span>;
 }
 
-function Banner({ tone = 'default', children, onClose }) {
+export function Banner({ tone = 'default', children, onClose }) {
   const bg = tone === 'danger' ? '#FBE6E4' : tone === 'success' ? '#E4F3E9' : '#FCEFDA';
   const fg = tone === 'danger' ? colors.danger : tone === 'success' ? colors.success : colors.warning;
   return (
@@ -29,7 +30,7 @@ function Banner({ tone = 'default', children, onClose }) {
   );
 }
 
-function useAsyncList(loader, deps = []) {
+export function useAsyncList(loader, deps = []) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   // Precisa devolver a Promise (não só disparar o fetch) — quem salva um
@@ -567,7 +568,7 @@ function ExplosaoTab({ perms, onNavigate }) {
 // (ainda não atualizado) por uma fração de segundo — e, se a pessoa mudasse
 // de tela nesse meio-tempo, o campo ficava com esse valor antigo (geralmente
 // 0) em vez do que tinha acabado de digitar.
-function EditableNumberCell({ value, disabled, onSave, width = 140 }) {
+export function EditableNumberCell({ value, disabled, onSave, width = 140 }) {
   const [local, setLocal] = useState(value);
   const [dirty, setDirty] = useState(false);
 
@@ -585,7 +586,7 @@ function EditableNumberCell({ value, disabled, onSave, width = 140 }) {
   );
 }
 
-function EditableTextCell({ value, disabled, onSave, width = 160 }) {
+export function EditableTextCell({ value, disabled, onSave, width = 160 }) {
   const [local, setLocal] = useState(value);
   const [dirty, setDirty] = useState(false);
 
@@ -1350,6 +1351,7 @@ function Layout({ user, perms, onLogout }) {
   const [contagemSelecionada, setContagemSelecionada] = useState(null);
   const [pendingRegister, setPendingRegister] = useState(null); // { contagemId, code, nome }
   const [contagemRefreshKey, setContagemRefreshKey] = useState(0);
+  const [colormaqContagemSelecionada, setColormaqContagemSelecionada] = useState(null);
 
   function selectTab(id) {
     setActiveTab(id);
@@ -1410,6 +1412,11 @@ function Layout({ user, perms, onLogout }) {
           {activeTab === 'materia_prima_produzida' && <MateriaPrimaProduzidaTab perms={perms} onNavigate={selectTab} />}
           {activeTab === 'contagem' && <ContagemTab perms={perms} isAdmin={user.role === 'admin'} selected={contagemSelecionada} onSelect={setContagemSelecionada} onGoRegister={goRegister} refreshKey={contagemRefreshKey} />}
           {activeTab === 'contagem_mobile' && <ContagemMobileTab perms={perms} />}
+          {activeTab === 'colormaq_cadastros' && <ColormaqCadastrosTab perms={perms} />}
+          {activeTab === 'colormaq_explosao' && <ColormaqExplosaoTab perms={perms} onNavigate={selectTab} />}
+          {activeTab === 'colormaq_materia_prima_produzida' && <ColormaqMateriaPrimaProcessadaTab perms={perms} />}
+          {activeTab === 'colormaq_contagem' && <ColormaqContagemTab perms={perms} isAdmin={user.role === 'admin'} selected={colormaqContagemSelecionada} onSelect={setColormaqContagemSelecionada} refreshKey={0} />}
+          {activeTab === 'colormaq_contagem_mobile' && <ColormaqContagemMobileTab perms={perms} />}
           {activeTab === 'usuarios' && <UsuariosTab perms={perms} />}
           {activeTab === 'permissoes' && <PermissoesTab />}
         </div>
