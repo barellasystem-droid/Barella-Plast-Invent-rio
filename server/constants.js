@@ -4,7 +4,11 @@
 const ROLES = ['admin', 'estoque', 'contagem', 'pendente'];
 
 // Abas do sistema — identificador único usado tanto no menu do frontend
-// (web/src/constants.js) quanto no controle de permissões do backend.
+// (web/src/constants.js) quanto no controle de permissões do backend. As
+// abas "colormaq_*" são as mesmas telas da Mondial, só que para o segundo
+// fornecedor (ver server/db.js, seção COLORMAQ) — identificador próprio para
+// não colidir permissão/rota com as abas da Mondial, mesmo a tela exibindo
+// o mesmo nome ("Contagem") nas duas.
 const TABS = [
   'cadastros',
   'explosao',
@@ -13,6 +17,11 @@ const TABS = [
   'contagem_mobile',
   'usuarios',
   'permissoes',
+  'colormaq_cadastros',
+  'colormaq_explosao',
+  'colormaq_materia_prima_produzida',
+  'colormaq_contagem',
+  'colormaq_contagem_mobile',
 ];
 
 // Usado só por server/seed.js para popular a tabela `permissions` na primeira
@@ -26,6 +35,11 @@ const DEFAULT_PERMISSIONS = {
   contagem_mobile: { view: ['admin', 'estoque', 'contagem'], edit: ['admin', 'estoque', 'contagem'] },
   usuarios: { view: ['admin'], edit: ['admin'] },
   permissoes: { view: ['admin'], edit: ['admin'] },
+  colormaq_cadastros: { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] },
+  colormaq_explosao: { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] },
+  colormaq_materia_prima_produzida: { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] },
+  colormaq_contagem: { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] },
+  colormaq_contagem_mobile: { view: ['admin', 'estoque', 'contagem'], edit: ['admin', 'estoque', 'contagem'] },
 };
 
 // Estados no formato exato da aba EXPLOSÃO da planilha original (7 linhas
@@ -40,4 +54,8 @@ const ESTADOS_PLANILHA = ['BORRA', 'MISTURA', 'GALHO', 'VARREDURA', 'MOIDO', 'SU
 // de ESTADOS_PLANILHA.
 const ESTADOS = ['BORRA', 'MISTURA', 'GALHO', 'PECA', 'VARREDURA', 'MOIDO', 'SUCATA', 'MAQUINA'];
 
-module.exports = { ROLES, TABS, DEFAULT_PERMISSIONS, ESTADOS, ESTADOS_PLANILHA };
+// Estados da mistura na Colormaq — só os 2 que a planilha de referência
+// (COLORMAQ.xlsx) usa, confirmado com o cliente (ver server/colormaqCalc.js).
+const ESTADOS_COLORMAQ = ['MISTURA', 'MOIDO'];
+
+module.exports = { ROLES, TABS, DEFAULT_PERMISSIONS, ESTADOS, ESTADOS_PLANILHA, ESTADOS_COLORMAQ };

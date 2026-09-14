@@ -38,6 +38,15 @@ app.use('/api/product-materials', require('./routes/productMaterials'));
 app.use('/api/blends', require('./routes/blends'));
 app.use('/api/contagens', require('./routes/contagens'));
 
+// Colormaq — segundo fornecedor, schema e rotas totalmente à parte (ver
+// server/db.js, seção COLORMAQ). Nada acima desta linha foi alterado para
+// isso entrar.
+app.use('/api/colormaq/raw-materials', require('./routes/colormaqRawMaterials'));
+app.use('/api/colormaq/products', require('./routes/colormaqProducts'));
+app.use('/api/colormaq/product-materials', require('./routes/colormaqProductMaterials'));
+app.use('/api/colormaq/blends', require('./routes/colormaqBlends'));
+app.use('/api/colormaq/contagens', require('./routes/colormaqContagens'));
+
 // Handler final de erro — sempre responde JSON (o frontend não sabe parsear
 // a página HTML de erro padrão do Express).
 app.use((err, req, res, next) => {

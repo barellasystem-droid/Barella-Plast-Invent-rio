@@ -206,6 +206,160 @@ async function init() {
       name TEXT PRIMARY KEY,
       applied_at TIMESTAMPTZ DEFAULT now()
     );
+
+    -- ------------------------------------------------------------------
+    -- COLORMAQ — segundo fornecedor do sistema (set/2026). Schema própria,
+    -- completamente separada da Mondial (tabelas acima): nenhuma tabela
+    -- "colormaq_*" referencia ou é referenciada por uma tabela da Mondial, e
+    -- nenhuma tabela da Mondial foi alterada para essa fornecedora entrar —
+    -- ver server/routes/colormaq*.js e server/colormaqCalc.js, que também
+    -- não tocam em nada usado pela Mondial. Mesmo banco de dados, estrutura
+    -- isolada por design (pedido explícito do cliente).
+    --
+    -- Diferenças do modelo da Mondial, refletidas aqui (planilha de
+    -- referência: COLORMAQ.xlsx, uma aba por data de contagem):
+    --   - Cada produto tem só 2 matérias-primas na receita (resina +
+    --     masterbatch) — mas colormaq_product_materials não trava nisso,
+    --     é uma tabela igual a product_materials, aberta a mudar depois.
+    --   - "Mistura" só tem 2 estados (MISTURA e MOÍDO), não os 8 da Mondial.
+    --   - O papel de cada componente da mistura é explícito (RESINA ou
+    --     MASTERBATCH) em vez de inferido por ordem/percentual nulo — o
+    --     percentual de diluição do masterbatch (quanto da mistura reciclada
+    --     é masterbatch, ex: 2% no grafite / 3% no branco) não fica
+    --     guardado separado: é sempre calculado a partir do próprio
+    --     consumo_unitario cadastrado em colormaq_product_materials (G e M
+    --     da planilha), para nunca ficar dessincronizado — mudar a receita
+    --     do produto já muda esse percentual automaticamente, sem precisar
+    --     editar em dois lugares (foi assim que o cliente pediu: editável no
+    --     cadastro do produto).
+    --   - "Peças produzidas" (coluna U:W da planilha, mesclada) é o que
+    --     entra na Explosão — contagem física em UN no celular alimenta
+    --     esse número automaticamente; contagem em KG alimenta o saldo da
+    --     matéria-prima diretamente, igual já funciona na Mondial.
+    -- "tipo" é fixo por matéria-prima (uma resina é sempre resina, um
+    -- masterbatch é sempre masterbatch) — usado pra derivar sozinho o blend
+    -- (resina+masterbatch) de cada produto quando o cadastro dele é salvo,
+    -- em vez de pedir pra alguém montar isso à mão (ver
+    -- server/routes/colormaqProducts.js, syncBlend()). Fica opcional (NULL)
+    -- porque nem toda matéria-prima cadastrada precisa entrar numa receita
+    -- de produto.
+    CREATE TABLE IF NOT EXISTS colormaq_raw_materials (
+      code TEXT PRIMARY KEY,
+      nome TEXT NOT NULL,
+      unidade TEXT NOT NULL DEFAULT 'KG',
+      tipo TEXT CHECK (tipo IN ('RESINA','MASTERBATCH')),
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS colormaq_products (
+      code TEXT PRIMARY KEY,
+      nome TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS colormaq_product_materials (
+      id TEXT PRIMARY KEY,
+      product_code TEXT NOT NULL REFERENCES colormaq_products(code) ON DELETE CASCADE ON UPDATE CASCADE,
+      raw_material_code TEXT NOT NULL REFERENCES colormaq_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
+      consumo_unitario DOUBLE PRECISION NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_colormaq_product_materials_product ON colormaq_product_materials(product_code);
+    CREATE INDEX IF NOT EXISTS idx_colormaq_product_materials_material ON colormaq_product_materials(raw_material_code);
+
+    -- Um "blend" agrupa os produtos que compartilham a mesma dupla
+    -- resina+masterbatch (ex: "PP H202HC + MASTERBATCH GRAFITO") — é nessa
+    -- dupla que a mistura/moído reciclado é lançado e depois repartido de
+    -- volta entre resina e masterbatch. "papel" substitui o percentual/ordem
+    -- que a Mondial usa: exatamente um componente RESINA e um MASTERBATCH.
+    CREATE TABLE IF NOT EXISTS colormaq_blends (
+      id TEXT PRIMARY KEY,
+      nome TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS colormaq_blend_components (
+      id TEXT PRIMARY KEY,
+      blend_id TEXT NOT NULL REFERENCES colormaq_blends(id) ON DELETE CASCADE,
+      raw_material_code TEXT NOT NULL REFERENCES colormaq_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
+      papel TEXT NOT NULL CHECK (papel IN ('RESINA','MASTERBATCH')),
+      UNIQUE (blend_id, papel)
+    );
+    CREATE INDEX IF NOT EXISTS idx_colormaq_blend_components_blend ON colormaq_blend_components(blend_id);
+
+    CREATE TABLE IF NOT EXISTS colormaq_contagens (
+      id TEXT PRIMARY KEY,
+      titulo TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ABERTA',
+      data DATE NOT NULL DEFAULT ((now() AT TIME ZONE 'America/Sao_Paulo')::date),
+      created_at TIMESTAMPTZ DEFAULT now(),
+      created_by TEXT
+    );
+
+    -- Peças produzidas por produto, snapshot por contagem — equivalente ao
+    -- estoque de produto da Mondial (contagem_product_stock), mas aqui o
+    -- número é literalmente "quantas peças esse produto produziu nessa
+    -- contagem" (coluna U:W da planilha), preenchido tanto pela tela
+    -- Matéria-Prima Processada (edição direta) quanto pelos lançamentos em
+    -- UN do celular (somados por cima — ver colormaqCalc.js).
+    CREATE TABLE IF NOT EXISTS colormaq_contagem_pecas_produzidas (
+      contagem_id TEXT NOT NULL REFERENCES colormaq_contagens(id) ON DELETE CASCADE,
+      product_code TEXT NOT NULL REFERENCES colormaq_products(code) ON DELETE CASCADE ON UPDATE CASCADE,
+      quantidade DOUBLE PRECISION NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      updated_by TEXT,
+      PRIMARY KEY (contagem_id, product_code)
+    );
+
+    CREATE TABLE IF NOT EXISTS colormaq_contagem_blend_quantities (
+      contagem_id TEXT NOT NULL REFERENCES colormaq_contagens(id) ON DELETE CASCADE,
+      blend_id TEXT NOT NULL REFERENCES colormaq_blends(id) ON DELETE CASCADE,
+      estado TEXT NOT NULL CHECK (estado IN ('MISTURA','MOIDO')),
+      quantidade DOUBLE PRECISION NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      updated_by TEXT,
+      PRIMARY KEY (contagem_id, blend_id, estado)
+    );
+
+    -- Relatório de Contagem da Colormaq: mesmo padrão da Mondial (Saldo do
+    -- Sistema x Saldo do Inventário x Notas em Trânsito -> Divergência),
+    -- reaproveitando computeDivergence de server/calc.js (função pura,
+    -- genérica, sem nada específico da Mondial — importar não altera nada).
+    CREATE TABLE IF NOT EXISTS colormaq_contagem_itens (
+      id TEXT PRIMARY KEY,
+      contagem_id TEXT NOT NULL REFERENCES colormaq_contagens(id) ON DELETE CASCADE,
+      raw_material_code TEXT NOT NULL REFERENCES colormaq_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
+      saldo_sistema DOUBLE PRECISION NOT NULL DEFAULT 0,
+      saldo_sistema_origem TEXT NOT NULL DEFAULT 'manual' CHECK (saldo_sistema_origem IN ('manual','upload')),
+      notas_transito DOUBLE PRECISION NOT NULL DEFAULT 0,
+      observacao TEXT,
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (contagem_id, raw_material_code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_colormaq_contagem_itens_contagem ON colormaq_contagem_itens(contagem_id);
+
+    -- Lançamentos da contagem física pelo celular. Ao contrário da Mondial
+    -- (onde PESO/QUANTIDADE são só duas unidades do mesmo item contado), na
+    -- Colormaq "PESO" conta uma MATÉRIA-PRIMA (pesando o saco de resina) e
+    -- "UN" conta um PRODUTO (peça acabada) — por isso raw_material_code e
+    -- product_code são mutuamente exclusivos, um deles sempre nulo conforme
+    -- o tipo.
+    CREATE TABLE IF NOT EXISTS colormaq_contagem_lancamentos (
+      id TEXT PRIMARY KEY,
+      contagem_id TEXT NOT NULL REFERENCES colormaq_contagens(id) ON DELETE CASCADE,
+      tipo TEXT NOT NULL CHECK (tipo IN ('PESO','UN')),
+      raw_material_code TEXT REFERENCES colormaq_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
+      product_code TEXT REFERENCES colormaq_products(code) ON DELETE RESTRICT ON UPDATE CASCADE,
+      valor DOUBLE PRECISION NOT NULL,
+      criado_por TEXT,
+      criado_em TIMESTAMPTZ DEFAULT now(),
+      CHECK (
+        (tipo = 'PESO' AND raw_material_code IS NOT NULL AND product_code IS NULL) OR
+        (tipo = 'UN' AND product_code IS NOT NULL AND raw_material_code IS NULL)
+      )
+    );
+    CREATE INDEX IF NOT EXISTS idx_colormaq_contagem_lancamentos_contagem ON colormaq_contagem_lancamentos(contagem_id);
+    CREATE INDEX IF NOT EXISTS idx_colormaq_contagem_lancamentos_material ON colormaq_contagem_lancamentos(raw_material_code);
+    CREATE INDEX IF NOT EXISTS idx_colormaq_contagem_lancamentos_produto ON colormaq_contagem_lancamentos(product_code);
   `);
   await runOnce('fix_legacy_integer_columns_v1', fixLegacyIntegerColumns);
   await runOnce('add_on_update_cascades_v1', addOnUpdateCascades);
