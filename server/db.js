@@ -10,8 +10,51 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
 });
 
+// Chave arbitrária (só precisa ser única dentro desse banco) para o
+// advisory lock que serializa a inicialização — ver init() abaixo.
+const INIT_LOCK_KEY = 727390100;
+
 async function init() {
-  await pool.query(`
+  const client = await pool.connect();
+  try {
+    // Vercel pode subir mais de uma função ao mesmo tempo (vários "cold
+    // start" simultâneos, comum logo depois de um deploy ou com vários
+    // usuários acessando junto) — cada uma rodava esse bloco inteiro de
+    // CREATE TABLE/ALTER TABLE em paralelo, disputando lock de catálogo
+    // (tabelas/constraints) uma com a outra, e o Postgres podia derrubar uma
+    // delas com "deadlock detected" — foi isso que travou o login depois do
+    // deploy da Colormaq (mais tabelas/FKs novas de uma vez aumentaram a
+    // chance de colisão).
+    //
+    // O DATABASE_URL aponta pro Transaction pooler do Supabase (PgBouncer em
+    // modo transaction) — um advisory lock de SESSÃO (pg_advisory_lock/
+    // pg_advisory_unlock) não é seguro aqui: fora de uma transação explícita,
+    // o PgBouncer pode reatribuir a conexão física do Postgres para outro
+    // cliente a cada statement, então o lock() e o unlock() podem acabar
+    // rodando em conexões físicas diferentes — o unlock não solta nada, e o
+    // lock fica preso pra sempre, travando todo cold start seguinte (pior que
+    // o bug original). pg_advisory_xact_lock (preso à TRANSAÇÃO, não à
+    // sessão) resolve isso: com tudo dentro de um BEGIN...COMMIT explícito na
+    // mesma conexão, o PgBouncer mantém essa conexão fixa até o COMMIT, e o
+    // lock é solto sozinho no COMMIT/ROLLBACK — sem unlock manual.
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [INIT_LOCK_KEY]);
+    await initSchema(client);
+    await runOnce(client, 'fix_legacy_integer_columns_v1', fixLegacyIntegerColumns);
+    await runOnce(client, 'add_on_update_cascades_v1', addOnUpdateCascades);
+    await runOnce(client, 'seed_colormaq_permissions_v1', seedColormaqPermissions);
+    await migrateToContagemScoped(client);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function initSchema(client) {
+  await client.query(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
@@ -361,10 +404,6 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_colormaq_contagem_lancamentos_material ON colormaq_contagem_lancamentos(raw_material_code);
     CREATE INDEX IF NOT EXISTS idx_colormaq_contagem_lancamentos_produto ON colormaq_contagem_lancamentos(product_code);
   `);
-  await runOnce('fix_legacy_integer_columns_v1', fixLegacyIntegerColumns);
-  await runOnce('add_on_update_cascades_v1', addOnUpdateCascades);
-  await runOnce('seed_colormaq_permissions_v1', seedColormaqPermissions);
-  await migrateToContagemScoped();
 }
 
 // Bancos que já existiam antes da Colormaq entrar não ganham as novas linhas
@@ -372,14 +411,14 @@ async function init() {
 // server/seed.js, e só numa vez, em banco vazio) — sem isso, ninguém
 // (nem admin) veria as abas novas até alguém abrir Permissões e marcar na
 // mão. ON CONFLICT DO NOTHING preserva o que um admin já tiver editado.
-async function seedColormaqPermissions() {
+async function seedColormaqPermissions(client) {
   const { DEFAULT_PERMISSIONS } = require('./constants');
   const colormaqTabs = Object.keys(DEFAULT_PERMISSIONS).filter((t) => t.startsWith('colormaq_'));
   for (const tabId of colormaqTabs) {
     const cfg = DEFAULT_PERMISSIONS[tabId];
     const allRoles = new Set([...cfg.view, ...cfg.edit]);
     for (const role of allRoles) {
-      await pool.query(
+      await client.query(
         `INSERT INTO permissions (tab_id, role, can_view, can_edit) VALUES ($1, $2, $3, $4)
          ON CONFLICT (tab_id, role) DO NOTHING`,
         [tabId, role, cfg.view.includes(role) ? 1 : 0, cfg.edit.includes(role) ? 1 : 0]
@@ -398,11 +437,11 @@ async function seedColormaqPermissions() {
 // migração já aplicada (em vez de inspecionar o schema do banco, que já se
 // mostrou não confiável atrás do pooler — ver o comentário de
 // fixLegacyIntegerColumns) resolve com uma única consulta barata.
-async function runOnce(name, fn) {
-  const { rows } = await pool.query('SELECT 1 FROM schema_migrations WHERE name = $1', [name]);
+async function runOnce(client, name, fn) {
+  const { rows } = await client.query('SELECT 1 FROM schema_migrations WHERE name = $1', [name]);
   if (rows.length) return;
-  await fn();
-  await pool.query('INSERT INTO schema_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING', [name]);
+  await fn(client);
+  await client.query('INSERT INTO schema_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING', [name]);
 }
 
 // Essas colunas foram criadas como INTEGER em uma versão bem antiga do
@@ -414,7 +453,7 @@ async function runOnce(name, fn) {
 // era recusado pelo Postgres ("invalid input syntax for type integer"),
 // e a tela dava a impressão de "não salvou"/"zerou depois de sair da tela"
 // porque a gravação nunca tinha acontecido de verdade.
-async function fixLegacyIntegerColumns() {
+async function fixLegacyIntegerColumns(client) {
   const columns = [
     ['product_materials', 'consumo_unitario'],
     ['product_stock', 'quantidade'],
@@ -440,12 +479,22 @@ async function fixLegacyIntegerColumns() {
   // roda isolada: uma falha (ex: permissão) fica só um log, não derruba
   // `db.ready` — antes uma única coluna travando aqui tirava a API inteira
   // do ar, já que toda rota espera essa promise antes de tocar no banco.
+  // Agora roda dentro de uma única transação (ver init()) — um erro num
+  // ALTER "envenena" a transação inteira até um ROLLBACK (mesmo capturado
+  // aqui em JS com try/catch, o Postgres já marcou a transação como abortada
+  // e qualquer comando seguinte, mesmo sem relação nenhuma, falharia com
+  // "current transaction is aborted"). SAVEPOINT por coluna preserva o
+  // isolamento original: uma falha desfaz só até o savepoint, sem derrubar
+  // o resto da migração.
   for (const [table, column] of columns) {
     try {
-      await pool.query(
+      await client.query('SAVEPOINT fix_legacy_integer_column');
+      await client.query(
         `ALTER TABLE public.${table} ALTER COLUMN ${column} TYPE DOUBLE PRECISION USING ${column}::double precision`
       );
+      await client.query('RELEASE SAVEPOINT fix_legacy_integer_column');
     } catch (err) {
+      await client.query('ROLLBACK TO SAVEPOINT fix_legacy_integer_column').catch(() => {});
       console.error(`fixLegacyIntegerColumns: falha ao corrigir ${table}.${column}:`, err.message);
     }
   }
@@ -457,7 +506,7 @@ async function fixLegacyIntegerColumns() {
 // raw_materials(code)/products(code) precisa de ON UPDATE CASCADE (o nome da
 // constraint é descoberto em runtime em vez de fixo, já que pode variar
 // conforme quando a tabela foi criada).
-async function addOnUpdateCascades() {
+async function addOnUpdateCascades(client) {
   const fks = [
     ['product_materials', 'product_code', 'products', 'code', 'CASCADE'],
     ['product_materials', 'raw_material_code', 'raw_materials', 'code', 'RESTRICT'],
@@ -469,7 +518,7 @@ async function addOnUpdateCascades() {
     ['contagem_virgin_stock', 'raw_material_code', 'raw_materials', 'code', 'CASCADE'],
   ];
   for (const [table, column, refTable, refColumn, onDelete] of fks) {
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `SELECT con.conname
        FROM pg_constraint con
        JOIN pg_class rel ON rel.oid = con.conrelid
@@ -478,9 +527,9 @@ async function addOnUpdateCascades() {
       [table, column]
     );
     for (const row of rows) {
-      await pool.query(`ALTER TABLE ${table} DROP CONSTRAINT ${row.conname}`);
+      await client.query(`ALTER TABLE ${table} DROP CONSTRAINT ${row.conname}`);
     }
-    await pool.query(
+    await client.query(
       `ALTER TABLE ${table} ADD CONSTRAINT ${table}_${column}_fkey
        FOREIGN KEY (${column}) REFERENCES ${refTable}(${refColumn}) ON DELETE ${onDelete} ON UPDATE CASCADE`
     );
@@ -492,30 +541,30 @@ async function addOnUpdateCascades() {
 // globais antigas para dentro de uma contagem "Dados importados da planilha",
 // preservando o que já tinha sido cadastrado/importado antes desse recurso
 // existir, em vez de simplesmente perder esses números.
-async function migrateToContagemScoped() {
-  const { rows: already } = await pool.query('SELECT 1 FROM contagem_product_stock LIMIT 1');
+async function migrateToContagemScoped(client) {
+  const { rows: already } = await client.query('SELECT 1 FROM contagem_product_stock LIMIT 1');
   if (already.length) return;
-  const { rows: oldStock } = await pool.query('SELECT COUNT(*)::int AS n FROM product_stock');
-  const { rows: oldVirgin } = await pool.query('SELECT COUNT(*)::int AS n FROM raw_material_virgin_stock');
-  const { rows: oldStates } = await pool.query('SELECT COUNT(*)::int AS n FROM blend_state_quantities');
+  const { rows: oldStock } = await client.query('SELECT COUNT(*)::int AS n FROM product_stock');
+  const { rows: oldVirgin } = await client.query('SELECT COUNT(*)::int AS n FROM raw_material_virgin_stock');
+  const { rows: oldStates } = await client.query('SELECT COUNT(*)::int AS n FROM blend_state_quantities');
   if (!oldStock[0].n && !oldVirgin[0].n && !oldStates[0].n) return;
 
   const baselineId = crypto.randomUUID();
-  await pool.query(
+  await client.query(
     `INSERT INTO contagens (id, titulo, status, data) VALUES ($1, 'Dados importados da planilha', 'FECHADA', ((now() AT TIME ZONE 'America/Sao_Paulo')::date))`,
     [baselineId]
   );
-  await pool.query(
+  await client.query(
     `INSERT INTO contagem_product_stock (contagem_id, product_code, quantidade, updated_at, updated_by)
      SELECT $1, product_code, quantidade, updated_at, updated_by FROM product_stock`,
     [baselineId]
   );
-  await pool.query(
+  await client.query(
     `INSERT INTO contagem_virgin_stock (contagem_id, raw_material_code, quantidade, updated_at, updated_by)
      SELECT $1, raw_material_code, quantidade, updated_at, updated_by FROM raw_material_virgin_stock`,
     [baselineId]
   );
-  await pool.query(
+  await client.query(
     `INSERT INTO contagem_blend_state_quantities (contagem_id, blend_id, estado, quantidade, updated_at, updated_by)
      SELECT $1, blend_id, estado, quantidade, updated_at, updated_by FROM blend_state_quantities`,
     [baselineId]
@@ -523,9 +572,9 @@ async function migrateToContagemScoped() {
   // A contagem base também ganha contagem_itens (mesmo padrão de POST /contagens
   // em server/routes/contagens.js) para poder aparecer normalmente no
   // Relatório de Contagem, se alguém for conferir.
-  const { rows: materials } = await pool.query('SELECT code FROM raw_materials');
+  const { rows: materials } = await client.query('SELECT code FROM raw_materials');
   for (const m of materials) {
-    await pool.query(
+    await client.query(
       'INSERT INTO contagem_itens (id, contagem_id, raw_material_code) VALUES ($1, $2, $3)',
       [crypto.randomUUID(), baselineId, m.code]
     );
