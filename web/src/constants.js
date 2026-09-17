@@ -1,27 +1,35 @@
+import { SUPPLIERS } from './suppliers.js';
+
 // "group" reúne as abas específicas do padrão de inventário de uma marca sob
 // um item pai retrátil na barra lateral (ex: "Mondial") — permite que outras
 // marcas, com abas próprias, entrem depois sem misturar tudo numa lista só.
 // Usuários e Permissões ficam fora de qualquer grupo por serem
-// administrativas, compartilhadas entre todas as marcas.
+// administrativas, compartilhadas entre todas as marcas. Os fornecedores
+// genéricos (Colormaq, Cadence, Inplast, Amvox — ver web/src/suppliers.js)
+// têm as mesmas 5 abas cada, geradas daqui em vez de repetidas na mão.
+const SUPPLIER_TAB_LABELS = [
+  ['cadastros', 'Cadastros'],
+  ['explosao', 'Explosão'],
+  ['materia_prima_produzida', 'Matéria Prima Processada'],
+  ['contagem', 'Relatório de Contagem'],
+  ['contagem_mobile', 'Contagem'],
+];
+
 export const NAV_ITEMS = [
   { id: 'cadastros', label: 'Cadastros', group: 'mondial' },
   { id: 'explosao', label: 'Explosão', group: 'mondial' },
   { id: 'materia_prima_produzida', label: 'Matéria Prima Processada', group: 'mondial' },
   { id: 'contagem', label: 'Relatório de Contagem', group: 'mondial' },
   { id: 'contagem_mobile', label: 'Contagem', group: 'mondial' },
-  { id: 'colormaq_cadastros', label: 'Cadastros', group: 'colormaq' },
-  { id: 'colormaq_explosao', label: 'Explosão', group: 'colormaq' },
-  { id: 'colormaq_materia_prima_produzida', label: 'Matéria Prima Processada', group: 'colormaq' },
-  { id: 'colormaq_contagem', label: 'Relatório de Contagem', group: 'colormaq' },
-  { id: 'colormaq_contagem_mobile', label: 'Contagem', group: 'colormaq' },
+  ...SUPPLIERS.flatMap((s) => SUPPLIER_TAB_LABELS.map(([suffix, label]) => ({ id: `${s.key}_${suffix}`, label, group: s.key }))),
   { id: 'usuarios', label: 'Usuários' },
   { id: 'permissoes', label: 'Permissões' },
 ];
 
-export const NAV_GROUPS = { mondial: 'Mondial', colormaq: 'Colormaq' };
+export const NAV_GROUPS = { mondial: 'Mondial', ...Object.fromEntries(SUPPLIERS.map((s) => [s.key, s.label])) };
 
-export const ESTADOS_COLORMAQ = ['MISTURA', 'MOIDO'];
-export const ESTADO_LABELS_COLORMAQ = { MISTURA: 'Mistura', MOIDO: 'Moído' };
+export const ESTADOS_FORNECEDOR_PADRAO = ['MISTURA', 'MOIDO'];
+export const ESTADO_LABELS_FORNECEDOR_PADRAO = { MISTURA: 'Mistura', MOIDO: 'Moído' };
 
 export const ESTADOS = ['BORRA', 'MISTURA', 'GALHO', 'PECA', 'VARREDURA', 'MOIDO', 'SUCATA', 'MAQUINA'];
 export const ESTADO_LABELS = {

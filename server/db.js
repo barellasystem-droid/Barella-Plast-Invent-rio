@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const { SUPPLIERS } = require('./suppliers');
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL não definida. Configure a connection string do Postgres (Supabase) antes de iniciar.');
@@ -42,7 +43,13 @@ async function init() {
     await initSchema(client);
     await runOnce(client, 'fix_legacy_integer_columns_v1', fixLegacyIntegerColumns);
     await runOnce(client, 'add_on_update_cascades_v1', addOnUpdateCascades);
-    await runOnce(client, 'seed_colormaq_permissions_v1', seedColormaqPermissions);
+    await runOnce(client, 'seed_colormaq_permissions_v1', seedSupplierPermissions);
+    // v2 (não v1 de novo): quando Cadence/Inplast/Amvox entraram, bancos que
+    // já tinham rodado a v1 (só Colormaq) não ganhariam as permissões dos
+    // fornecedores novos — o runOnce da v1 já estava marcado como feito e
+    // pularia de novo. Sempre que uma leva nova de fornecedores genéricos
+    // entrar, criar mais uma versão aqui (v3, v4...) em vez de reusar o nome.
+    await runOnce(client, 'seed_supplier_permissions_v2', seedSupplierPermissions);
     await migrateToContagemScoped(client);
     await client.query('COMMIT');
   } catch (err) {
@@ -250,43 +257,60 @@ async function initSchema(client) {
       applied_at TIMESTAMPTZ DEFAULT now()
     );
 
-    -- ------------------------------------------------------------------
-    -- COLORMAQ — segundo fornecedor do sistema (set/2026). Schema própria,
-    -- completamente separada da Mondial (tabelas acima): nenhuma tabela
-    -- "colormaq_*" referencia ou é referenciada por uma tabela da Mondial, e
-    -- nenhuma tabela da Mondial foi alterada para essa fornecedora entrar —
-    -- ver server/routes/colormaq*.js e server/colormaqCalc.js, que também
-    -- não tocam em nada usado pela Mondial. Mesmo banco de dados, estrutura
-    -- isolada por design (pedido explícito do cliente).
-    --
-    -- Diferenças do modelo da Mondial, refletidas aqui (planilha de
-    -- referência: COLORMAQ.xlsx, uma aba por data de contagem):
-    --   - Cada produto tem só 2 matérias-primas na receita (resina +
-    --     masterbatch) — mas colormaq_product_materials não trava nisso,
-    --     é uma tabela igual a product_materials, aberta a mudar depois.
-    --   - "Mistura" só tem 2 estados (MISTURA e MOÍDO), não os 8 da Mondial.
-    --   - O papel de cada componente da mistura é explícito (RESINA ou
-    --     MASTERBATCH) em vez de inferido por ordem/percentual nulo — o
-    --     percentual de diluição do masterbatch (quanto da mistura reciclada
-    --     é masterbatch, ex: 2% no grafite / 3% no branco) não fica
-    --     guardado separado: é sempre calculado a partir do próprio
-    --     consumo_unitario cadastrado em colormaq_product_materials (G e M
-    --     da planilha), para nunca ficar dessincronizado — mudar a receita
-    --     do produto já muda esse percentual automaticamente, sem precisar
-    --     editar em dois lugares (foi assim que o cliente pediu: editável no
-    --     cadastro do produto).
-    --   - "Peças produzidas" (coluna U:W da planilha, mesclada) é o que
-    --     entra na Explosão — contagem física em UN no celular alimenta
-    --     esse número automaticamente; contagem em KG alimenta o saldo da
-    --     matéria-prima diretamente, igual já funciona na Mondial.
+  `);
+  // ------------------------------------------------------------------
+  // Fornecedores "genéricos" (Colormaq, Cadence, Inplast, Amvox — ver
+  // server/suppliers.js): mesmo molde para todos, uma cópia do schema por
+  // fornecedor, prefixada (ex: colormaq_raw_materials, cadence_raw_materials
+  // ...). Nenhuma tabela dessas referencia ou é referenciada por uma tabela
+  // da Mondial (tabelas acima), e nenhuma tabela da Mondial foi alterada
+  // para esses fornecedores entrarem — ver server/supplierRoutes.js e
+  // server/supplierCalc.js, que também não tocam em nada usado pela
+  // Mondial. Mesmo banco de dados, estrutura isolada por design (pedido
+  // explícito do cliente, primeiro pra Colormaq, depois generalizado).
+  //
+  // Diferenças do modelo da Mondial (planilha de referência original:
+  // COLORMAQ.xlsx, uma aba por data de contagem — os fornecedores seguintes
+  // usam o mesmo molde sem planilha própria, por pedido do cliente):
+  //   - Cada produto tem só 2 matérias-primas na receita (resina +
+  //     masterbatch) — mas "<prefixo>_product_materials" não trava nisso, é
+  //     uma tabela igual a product_materials, aberta a mudar depois.
+  //   - "Mistura" só tem 2 estados (MISTURA e MOÍDO), não os 8 da Mondial.
+  //   - O papel de cada componente da mistura é explícito (RESINA ou
+  //     MASTERBATCH) em vez de inferido por ordem/percentual nulo — o
+  //     percentual de diluição do masterbatch (quanto da mistura reciclada
+  //     é masterbatch, ex: 2% no grafite / 3% no branco) não fica guardado
+  //     separado: é sempre calculado a partir do próprio consumo_unitario
+  //     cadastrado em "<prefixo>_product_materials" (G e M da planilha
+  //     original da Colormaq), para nunca ficar dessincronizado — mudar a
+  //     receita do produto já muda esse percentual automaticamente, sem
+  //     precisar editar em dois lugares (editável no cadastro do produto).
+  //   - "Peças produzidas" é o que entra na Explosão — contagem física em
+  //     UN no celular alimenta esse número automaticamente; contagem em KG
+  //     alimenta o saldo da matéria-prima diretamente, igual já funciona na
+  //     Mondial.
+  for (const supplier of SUPPLIERS) {
+    await client.query(supplierSchemaSql(supplier.key));
+  }
+}
+
+// Gera o schema completo de um fornecedor genérico, com todas as tabelas
+// prefixadas por "prefix_" — ver o comentário acima de initSchema() para o
+// que cada tabela representa. "prefix" nunca vem de entrada de usuário (só
+// de server/suppliers.js, uma lista fixa no código), então interpolar
+// direto na string SQL aqui é seguro — nomes de tabela não podem ser
+// parâmetro ligado ($1) do jeito que valores podem.
+function supplierSchemaSql(prefix) {
+  const p = prefix;
+  return `
     -- "tipo" é fixo por matéria-prima (uma resina é sempre resina, um
     -- masterbatch é sempre masterbatch) — usado pra derivar sozinho o blend
     -- (resina+masterbatch) de cada produto quando o cadastro dele é salvo,
     -- em vez de pedir pra alguém montar isso à mão (ver
-    -- server/routes/colormaqProducts.js, syncBlend()). Fica opcional (NULL)
-    -- porque nem toda matéria-prima cadastrada precisa entrar numa receita
-    -- de produto.
-    CREATE TABLE IF NOT EXISTS colormaq_raw_materials (
+    -- server/supplierRoutes.js, syncBlend()). Fica opcional (NULL) porque
+    -- nem toda matéria-prima cadastrada precisa entrar numa receita de
+    -- produto.
+    CREATE TABLE IF NOT EXISTS ${p}_raw_materials (
       code TEXT PRIMARY KEY,
       nome TEXT NOT NULL,
       unidade TEXT NOT NULL DEFAULT 'KG',
@@ -294,42 +318,42 @@ async function initSchema(client) {
       created_at TIMESTAMPTZ DEFAULT now()
     );
 
-    CREATE TABLE IF NOT EXISTS colormaq_products (
+    CREATE TABLE IF NOT EXISTS ${p}_products (
       code TEXT PRIMARY KEY,
       nome TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT now()
     );
 
-    CREATE TABLE IF NOT EXISTS colormaq_product_materials (
+    CREATE TABLE IF NOT EXISTS ${p}_product_materials (
       id TEXT PRIMARY KEY,
-      product_code TEXT NOT NULL REFERENCES colormaq_products(code) ON DELETE CASCADE ON UPDATE CASCADE,
-      raw_material_code TEXT NOT NULL REFERENCES colormaq_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
+      product_code TEXT NOT NULL REFERENCES ${p}_products(code) ON DELETE CASCADE ON UPDATE CASCADE,
+      raw_material_code TEXT NOT NULL REFERENCES ${p}_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
       consumo_unitario DOUBLE PRECISION NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_colormaq_product_materials_product ON colormaq_product_materials(product_code);
-    CREATE INDEX IF NOT EXISTS idx_colormaq_product_materials_material ON colormaq_product_materials(raw_material_code);
+    CREATE INDEX IF NOT EXISTS idx_${p}_product_materials_product ON ${p}_product_materials(product_code);
+    CREATE INDEX IF NOT EXISTS idx_${p}_product_materials_material ON ${p}_product_materials(raw_material_code);
 
     -- Um "blend" agrupa os produtos que compartilham a mesma dupla
-    -- resina+masterbatch (ex: "PP H202HC + MASTERBATCH GRAFITO") — é nessa
-    -- dupla que a mistura/moído reciclado é lançado e depois repartido de
-    -- volta entre resina e masterbatch. "papel" substitui o percentual/ordem
-    -- que a Mondial usa: exatamente um componente RESINA e um MASTERBATCH.
-    CREATE TABLE IF NOT EXISTS colormaq_blends (
+    -- resina+masterbatch — é nessa dupla que a mistura/moído reciclado é
+    -- lançado e depois repartido de volta entre resina e masterbatch.
+    -- "papel" substitui o percentual/ordem que a Mondial usa: exatamente um
+    -- componente RESINA e um MASTERBATCH.
+    CREATE TABLE IF NOT EXISTS ${p}_blends (
       id TEXT PRIMARY KEY,
       nome TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT now()
     );
 
-    CREATE TABLE IF NOT EXISTS colormaq_blend_components (
+    CREATE TABLE IF NOT EXISTS ${p}_blend_components (
       id TEXT PRIMARY KEY,
-      blend_id TEXT NOT NULL REFERENCES colormaq_blends(id) ON DELETE CASCADE,
-      raw_material_code TEXT NOT NULL REFERENCES colormaq_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
+      blend_id TEXT NOT NULL REFERENCES ${p}_blends(id) ON DELETE CASCADE,
+      raw_material_code TEXT NOT NULL REFERENCES ${p}_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
       papel TEXT NOT NULL CHECK (papel IN ('RESINA','MASTERBATCH')),
       UNIQUE (blend_id, papel)
     );
-    CREATE INDEX IF NOT EXISTS idx_colormaq_blend_components_blend ON colormaq_blend_components(blend_id);
+    CREATE INDEX IF NOT EXISTS idx_${p}_blend_components_blend ON ${p}_blend_components(blend_id);
 
-    CREATE TABLE IF NOT EXISTS colormaq_contagens (
+    CREATE TABLE IF NOT EXISTS ${p}_contagens (
       id TEXT PRIMARY KEY,
       titulo TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'ABERTA',
@@ -341,21 +365,21 @@ async function initSchema(client) {
     -- Peças produzidas por produto, snapshot por contagem — equivalente ao
     -- estoque de produto da Mondial (contagem_product_stock), mas aqui o
     -- número é literalmente "quantas peças esse produto produziu nessa
-    -- contagem" (coluna U:W da planilha), preenchido tanto pela tela
-    -- Matéria-Prima Processada (edição direta) quanto pelos lançamentos em
-    -- UN do celular (somados por cima — ver colormaqCalc.js).
-    CREATE TABLE IF NOT EXISTS colormaq_contagem_pecas_produzidas (
-      contagem_id TEXT NOT NULL REFERENCES colormaq_contagens(id) ON DELETE CASCADE,
-      product_code TEXT NOT NULL REFERENCES colormaq_products(code) ON DELETE CASCADE ON UPDATE CASCADE,
+    -- contagem", preenchido tanto pela tela Matéria-Prima Processada
+    -- (edição direta) quanto pelos lançamentos em UN do celular (somados
+    -- por cima — ver server/supplierCalc.js).
+    CREATE TABLE IF NOT EXISTS ${p}_contagem_pecas_produzidas (
+      contagem_id TEXT NOT NULL REFERENCES ${p}_contagens(id) ON DELETE CASCADE,
+      product_code TEXT NOT NULL REFERENCES ${p}_products(code) ON DELETE CASCADE ON UPDATE CASCADE,
       quantidade DOUBLE PRECISION NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ DEFAULT now(),
       updated_by TEXT,
       PRIMARY KEY (contagem_id, product_code)
     );
 
-    CREATE TABLE IF NOT EXISTS colormaq_contagem_blend_quantities (
-      contagem_id TEXT NOT NULL REFERENCES colormaq_contagens(id) ON DELETE CASCADE,
-      blend_id TEXT NOT NULL REFERENCES colormaq_blends(id) ON DELETE CASCADE,
+    CREATE TABLE IF NOT EXISTS ${p}_contagem_blend_quantities (
+      contagem_id TEXT NOT NULL REFERENCES ${p}_contagens(id) ON DELETE CASCADE,
+      blend_id TEXT NOT NULL REFERENCES ${p}_blends(id) ON DELETE CASCADE,
       estado TEXT NOT NULL CHECK (estado IN ('MISTURA','MOIDO')),
       quantidade DOUBLE PRECISION NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ DEFAULT now(),
@@ -363,14 +387,14 @@ async function initSchema(client) {
       PRIMARY KEY (contagem_id, blend_id, estado)
     );
 
-    -- Relatório de Contagem da Colormaq: mesmo padrão da Mondial (Saldo do
-    -- Sistema x Saldo do Inventário x Notas em Trânsito -> Divergência),
+    -- Relatório de Contagem: mesmo padrão da Mondial (Saldo do Sistema x
+    -- Saldo do Inventário x Notas em Trânsito -> Divergência),
     -- reaproveitando computeDivergence de server/calc.js (função pura,
     -- genérica, sem nada específico da Mondial — importar não altera nada).
-    CREATE TABLE IF NOT EXISTS colormaq_contagem_itens (
+    CREATE TABLE IF NOT EXISTS ${p}_contagem_itens (
       id TEXT PRIMARY KEY,
-      contagem_id TEXT NOT NULL REFERENCES colormaq_contagens(id) ON DELETE CASCADE,
-      raw_material_code TEXT NOT NULL REFERENCES colormaq_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
+      contagem_id TEXT NOT NULL REFERENCES ${p}_contagens(id) ON DELETE CASCADE,
+      raw_material_code TEXT NOT NULL REFERENCES ${p}_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
       saldo_sistema DOUBLE PRECISION NOT NULL DEFAULT 0,
       saldo_sistema_origem TEXT NOT NULL DEFAULT 'manual' CHECK (saldo_sistema_origem IN ('manual','upload')),
       notas_transito DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -378,20 +402,20 @@ async function initSchema(client) {
       updated_at TIMESTAMPTZ DEFAULT now(),
       UNIQUE (contagem_id, raw_material_code)
     );
-    CREATE INDEX IF NOT EXISTS idx_colormaq_contagem_itens_contagem ON colormaq_contagem_itens(contagem_id);
+    CREATE INDEX IF NOT EXISTS idx_${p}_contagem_itens_contagem ON ${p}_contagem_itens(contagem_id);
 
     -- Lançamentos da contagem física pelo celular. Ao contrário da Mondial
-    -- (onde PESO/QUANTIDADE são só duas unidades do mesmo item contado), na
-    -- Colormaq "PESO" conta uma MATÉRIA-PRIMA (pesando o saco de resina) e
-    -- "UN" conta um PRODUTO (peça acabada) — por isso raw_material_code e
+    -- (onde PESO/QUANTIDADE são só duas unidades do mesmo item contado),
+    -- aqui "PESO" conta uma MATÉRIA-PRIMA (pesando o saco de resina) e "UN"
+    -- conta um PRODUTO (peça acabada) — por isso raw_material_code e
     -- product_code são mutuamente exclusivos, um deles sempre nulo conforme
     -- o tipo.
-    CREATE TABLE IF NOT EXISTS colormaq_contagem_lancamentos (
+    CREATE TABLE IF NOT EXISTS ${p}_contagem_lancamentos (
       id TEXT PRIMARY KEY,
-      contagem_id TEXT NOT NULL REFERENCES colormaq_contagens(id) ON DELETE CASCADE,
+      contagem_id TEXT NOT NULL REFERENCES ${p}_contagens(id) ON DELETE CASCADE,
       tipo TEXT NOT NULL CHECK (tipo IN ('PESO','UN')),
-      raw_material_code TEXT REFERENCES colormaq_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
-      product_code TEXT REFERENCES colormaq_products(code) ON DELETE RESTRICT ON UPDATE CASCADE,
+      raw_material_code TEXT REFERENCES ${p}_raw_materials(code) ON DELETE RESTRICT ON UPDATE CASCADE,
+      product_code TEXT REFERENCES ${p}_products(code) ON DELETE RESTRICT ON UPDATE CASCADE,
       valor DOUBLE PRECISION NOT NULL,
       criado_por TEXT,
       criado_em TIMESTAMPTZ DEFAULT now(),
@@ -400,21 +424,23 @@ async function initSchema(client) {
         (tipo = 'UN' AND product_code IS NOT NULL AND raw_material_code IS NULL)
       )
     );
-    CREATE INDEX IF NOT EXISTS idx_colormaq_contagem_lancamentos_contagem ON colormaq_contagem_lancamentos(contagem_id);
-    CREATE INDEX IF NOT EXISTS idx_colormaq_contagem_lancamentos_material ON colormaq_contagem_lancamentos(raw_material_code);
-    CREATE INDEX IF NOT EXISTS idx_colormaq_contagem_lancamentos_produto ON colormaq_contagem_lancamentos(product_code);
-  `);
+    CREATE INDEX IF NOT EXISTS idx_${p}_contagem_lancamentos_contagem ON ${p}_contagem_lancamentos(contagem_id);
+    CREATE INDEX IF NOT EXISTS idx_${p}_contagem_lancamentos_material ON ${p}_contagem_lancamentos(raw_material_code);
+    CREATE INDEX IF NOT EXISTS idx_${p}_contagem_lancamentos_produto ON ${p}_contagem_lancamentos(product_code);
+  `;
 }
 
-// Bancos que já existiam antes da Colormaq entrar não ganham as novas linhas
-// de permissions.tab_id sozinhos (DEFAULT_PERMISSIONS só é aplicado por
-// server/seed.js, e só numa vez, em banco vazio) — sem isso, ninguém
-// (nem admin) veria as abas novas até alguém abrir Permissões e marcar na
-// mão. ON CONFLICT DO NOTHING preserva o que um admin já tiver editado.
-async function seedColormaqPermissions(client) {
+// Bancos que já existiam antes de um fornecedor genérico entrar não ganham
+// as novas linhas de permissions.tab_id sozinhos (DEFAULT_PERMISSIONS só é
+// aplicado por server/seed.js, e só numa vez, em banco vazio) — sem isso,
+// ninguém (nem admin) veria as abas novas até alguém abrir Permissões e
+// marcar na mão. ON CONFLICT DO NOTHING preserva o que um admin já tiver
+// editado.
+async function seedSupplierPermissions(client) {
   const { DEFAULT_PERMISSIONS } = require('./constants');
-  const colormaqTabs = Object.keys(DEFAULT_PERMISSIONS).filter((t) => t.startsWith('colormaq_'));
-  for (const tabId of colormaqTabs) {
+  const prefixes = SUPPLIERS.map((s) => `${s.key}_`);
+  const supplierTabs = Object.keys(DEFAULT_PERMISSIONS).filter((t) => prefixes.some((p) => t.startsWith(p)));
+  for (const tabId of supplierTabs) {
     const cfg = DEFAULT_PERMISSIONS[tabId];
     const allRoles = new Set([...cfg.view, ...cfg.edit]);
     for (const role of allRoles) {

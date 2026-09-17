@@ -1,3 +1,5 @@
+import { SUPPLIERS } from './suppliers.js';
+
 const TOKEN_KEY = 'inventario_token';
 
 export function getToken() {
@@ -117,64 +119,75 @@ export const api = {
       URL.revokeObjectURL(url);
     },
   },
-  // Colormaq — segundo fornecedor, endpoints próprios (/api/colormaq/*), sem
-  // nenhuma relação com os endpoints da Mondial acima.
-  colormaq: {
+};
+
+// Fornecedores genéricos (Colormaq, Cadence, Inplast, Amvox — ver
+// web/src/suppliers.js), endpoints próprios (/api/<key>/*), sem nenhuma
+// relação com os endpoints da Mondial acima. Uma função só (em vez de bloco
+// copiado por fornecedor) que monta o mesmo conjunto de chamadas pra
+// qualquer key — api.colormaq.contagens.list(), api.cadence.products.list()
+// etc. são todas geradas daqui.
+function makeSupplierApi(key) {
+  return {
     rawMaterials: {
-      list: () => request('GET', '/colormaq/raw-materials'),
-      create: (m) => request('POST', '/colormaq/raw-materials', m),
-      bulkCreate: (items) => request('POST', '/colormaq/raw-materials/bulk', { items }),
-      update: (code, m) => request('PUT', `/colormaq/raw-materials/${encodeURIComponent(code)}`, m),
-      remove: (code) => request('DELETE', `/colormaq/raw-materials/${encodeURIComponent(code)}`),
+      list: () => request('GET', `/${key}/raw-materials`),
+      create: (m) => request('POST', `/${key}/raw-materials`, m),
+      bulkCreate: (items) => request('POST', `/${key}/raw-materials/bulk`, { items }),
+      update: (code, m) => request('PUT', `/${key}/raw-materials/${encodeURIComponent(code)}`, m),
+      remove: (code) => request('DELETE', `/${key}/raw-materials/${encodeURIComponent(code)}`),
     },
     products: {
-      list: () => request('GET', '/colormaq/products'),
-      get: (code) => request('GET', `/colormaq/products/${encodeURIComponent(code)}`),
-      create: (p) => request('POST', '/colormaq/products', p),
-      update: (code, p) => request('PUT', `/colormaq/products/${encodeURIComponent(code)}`, p),
-      remove: (code) => request('DELETE', `/colormaq/products/${encodeURIComponent(code)}`),
+      list: () => request('GET', `/${key}/products`),
+      get: (code) => request('GET', `/${key}/products/${encodeURIComponent(code)}`),
+      create: (p) => request('POST', `/${key}/products`, p),
+      update: (code, p) => request('PUT', `/${key}/products/${encodeURIComponent(code)}`, p),
+      remove: (code) => request('DELETE', `/${key}/products/${encodeURIComponent(code)}`),
     },
     productMaterials: {
-      list: () => request('GET', '/colormaq/product-materials'),
+      list: () => request('GET', `/${key}/product-materials`),
     },
     blends: {
-      list: () => request('GET', '/colormaq/blends'),
+      list: () => request('GET', `/${key}/blends`),
     },
     contagens: {
-      list: () => request('GET', '/colormaq/contagens'),
-      get: (id) => request('GET', `/colormaq/contagens/${id}`),
-      create: (c) => request('POST', '/colormaq/contagens', c),
-      update: (id, c) => request('PUT', `/colormaq/contagens/${id}`, c),
-      remove: (id) => request('DELETE', `/colormaq/contagens/${id}`),
-      setItem: (id, code, patch) => request('PUT', `/colormaq/contagens/${id}/itens/${encodeURIComponent(code)}`, patch),
-      materiaisLancamentos: (id, code) => request('GET', `/colormaq/contagens/${id}/materiais/${encodeURIComponent(code)}/lancamentos`),
-      addMaterialLancamento: (id, code, valor) => request('POST', `/colormaq/contagens/${id}/materiais/${encodeURIComponent(code)}/lancamentos`, { valor }),
-      removeMaterialLancamento: (id, code, lancamentoId) => request('DELETE', `/colormaq/contagens/${id}/materiais/${encodeURIComponent(code)}/lancamentos/${lancamentoId}`),
-      produtosLancamentos: (id, code) => request('GET', `/colormaq/contagens/${id}/produtos/${encodeURIComponent(code)}/lancamentos`),
-      addProdutoLancamento: (id, code, valor) => request('POST', `/colormaq/contagens/${id}/produtos/${encodeURIComponent(code)}/lancamentos`, { valor }),
-      removeProdutoLancamento: (id, code, lancamentoId) => request('DELETE', `/colormaq/contagens/${id}/produtos/${encodeURIComponent(code)}/lancamentos/${lancamentoId}`),
+      list: () => request('GET', `/${key}/contagens`),
+      get: (id) => request('GET', `/${key}/contagens/${id}`),
+      create: (c) => request('POST', `/${key}/contagens`, c),
+      update: (id, c) => request('PUT', `/${key}/contagens/${id}`, c),
+      remove: (id) => request('DELETE', `/${key}/contagens/${id}`),
+      setItem: (id, code, patch) => request('PUT', `/${key}/contagens/${id}/itens/${encodeURIComponent(code)}`, patch),
+      materiaisLancamentos: (id, code) => request('GET', `/${key}/contagens/${id}/materiais/${encodeURIComponent(code)}/lancamentos`),
+      addMaterialLancamento: (id, code, valor) => request('POST', `/${key}/contagens/${id}/materiais/${encodeURIComponent(code)}/lancamentos`, { valor }),
+      removeMaterialLancamento: (id, code, lancamentoId) => request('DELETE', `/${key}/contagens/${id}/materiais/${encodeURIComponent(code)}/lancamentos/${lancamentoId}`),
+      produtosLancamentos: (id, code) => request('GET', `/${key}/contagens/${id}/produtos/${encodeURIComponent(code)}/lancamentos`),
+      addProdutoLancamento: (id, code, valor) => request('POST', `/${key}/contagens/${id}/produtos/${encodeURIComponent(code)}/lancamentos`, { valor }),
+      removeProdutoLancamento: (id, code, lancamentoId) => request('DELETE', `/${key}/contagens/${id}/produtos/${encodeURIComponent(code)}/lancamentos/${lancamentoId}`),
       pecasProduzidas: {
-        list: (contagemId) => request('GET', `/colormaq/contagens/${contagemId}/pecas-produzidas`),
-        set: (contagemId, code, quantidade) => request('PUT', `/colormaq/contagens/${contagemId}/pecas-produzidas/${encodeURIComponent(code)}`, { quantidade }),
+        list: (contagemId) => request('GET', `/${key}/contagens/${contagemId}/pecas-produzidas`),
+        set: (contagemId, code, quantidade) => request('PUT', `/${key}/contagens/${contagemId}/pecas-produzidas/${encodeURIComponent(code)}`, { quantidade }),
       },
-      summary: (contagemId) => request('GET', `/colormaq/contagens/${contagemId}/summary`),
+      summary: (contagemId) => request('GET', `/${key}/contagens/${contagemId}/summary`),
       blends: {
-        list: (contagemId) => request('GET', `/colormaq/contagens/${contagemId}/blends`),
-        setEstado: (contagemId, blendId, estado, quantidade) => request('PUT', `/colormaq/contagens/${contagemId}/blends/${blendId}/estados/${estado}`, { quantidade }),
+        list: (contagemId) => request('GET', `/${key}/contagens/${contagemId}/blends`),
+        setEstado: (contagemId, blendId, estado, quantidade) => request('PUT', `/${key}/contagens/${contagemId}/blends/${blendId}/estados/${estado}`, { quantidade }),
       },
       exportXlsx: async (id, filename) => {
-        const blob = await request('GET', `/colormaq/contagens/${id}/export`);
+        const blob = await request('GET', `/${key}/contagens/${id}/export`);
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = filename || 'colormaq_contagem.xlsx';
+        a.download = filename || `${key}_contagem.xlsx`;
         document.body.appendChild(a);
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
       },
     },
-  },
-};
+  };
+}
+
+for (const s of SUPPLIERS) {
+  api[s.key] = makeSupplierApi(s.key);
+}
 
 export { request };

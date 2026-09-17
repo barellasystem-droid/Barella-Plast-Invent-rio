@@ -1,3 +1,5 @@
+const { SUPPLIERS } = require('./suppliers');
+
 // Papéis de usuário. 'pendente' fica reservado para uma eventual tela de
 // auto-cadastro no futuro (ex: acesso do fornecedor) — hoje ninguém tem esse
 // papel a menos que seja criado manualmente.
@@ -5,10 +7,13 @@ const ROLES = ['admin', 'estoque', 'contagem', 'pendente'];
 
 // Abas do sistema — identificador único usado tanto no menu do frontend
 // (web/src/constants.js) quanto no controle de permissões do backend. As
-// abas "colormaq_*" são as mesmas telas da Mondial, só que para o segundo
-// fornecedor (ver server/db.js, seção COLORMAQ) — identificador próprio para
-// não colidir permissão/rota com as abas da Mondial, mesmo a tela exibindo
-// o mesmo nome ("Contagem") nas duas.
+// abas "<fornecedor>_*" são as mesmas 5 telas para cada fornecedor genérico
+// (Colormaq, Cadence, Inplast, Amvox — ver server/suppliers.js e
+// server/db.js) — identificador próprio por fornecedor para não colidir
+// permissão/rota entre eles nem com a Mondial, mesmo a tela exibindo o
+// mesmo nome ("Contagem") em todos.
+const SUPPLIER_TAB_SUFFIXES = ['cadastros', 'explosao', 'materia_prima_produzida', 'contagem', 'contagem_mobile'];
+
 const TABS = [
   'cadastros',
   'explosao',
@@ -17,11 +22,7 @@ const TABS = [
   'contagem_mobile',
   'usuarios',
   'permissoes',
-  'colormaq_cadastros',
-  'colormaq_explosao',
-  'colormaq_materia_prima_produzida',
-  'colormaq_contagem',
-  'colormaq_contagem_mobile',
+  ...SUPPLIERS.flatMap((s) => SUPPLIER_TAB_SUFFIXES.map((suffix) => `${s.key}_${suffix}`)),
 ];
 
 // Usado só por server/seed.js para popular a tabela `permissions` na primeira
@@ -35,12 +36,14 @@ const DEFAULT_PERMISSIONS = {
   contagem_mobile: { view: ['admin', 'estoque', 'contagem'], edit: ['admin', 'estoque', 'contagem'] },
   usuarios: { view: ['admin'], edit: ['admin'] },
   permissoes: { view: ['admin'], edit: ['admin'] },
-  colormaq_cadastros: { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] },
-  colormaq_explosao: { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] },
-  colormaq_materia_prima_produzida: { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] },
-  colormaq_contagem: { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] },
-  colormaq_contagem_mobile: { view: ['admin', 'estoque', 'contagem'], edit: ['admin', 'estoque', 'contagem'] },
 };
+for (const s of SUPPLIERS) {
+  DEFAULT_PERMISSIONS[`${s.key}_cadastros`] = { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] };
+  DEFAULT_PERMISSIONS[`${s.key}_explosao`] = { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] };
+  DEFAULT_PERMISSIONS[`${s.key}_materia_prima_produzida`] = { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] };
+  DEFAULT_PERMISSIONS[`${s.key}_contagem`] = { view: ['admin', 'estoque'], edit: ['admin', 'estoque'] };
+  DEFAULT_PERMISSIONS[`${s.key}_contagem_mobile`] = { view: ['admin', 'estoque', 'contagem'], edit: ['admin', 'estoque', 'contagem'] };
+}
 
 // Estados no formato exato da aba EXPLOSÃO da planilha original (7 linhas
 // fixas por bloco) — usado só pelo importador (server/import-from-xlsx.js)
@@ -54,8 +57,10 @@ const ESTADOS_PLANILHA = ['BORRA', 'MISTURA', 'GALHO', 'VARREDURA', 'MOIDO', 'SU
 // de ESTADOS_PLANILHA.
 const ESTADOS = ['BORRA', 'MISTURA', 'GALHO', 'PECA', 'VARREDURA', 'MOIDO', 'SUCATA', 'MAQUINA'];
 
-// Estados da mistura na Colormaq — só os 2 que a planilha de referência
-// (COLORMAQ.xlsx) usa, confirmado com o cliente (ver server/colormaqCalc.js).
-const ESTADOS_COLORMAQ = ['MISTURA', 'MOIDO'];
+// Estados da mistura no modelo dos fornecedores genéricos (Colormaq,
+// Cadence, Inplast, Amvox) — só os 2 que a planilha de referência original
+// da Colormaq (COLORMAQ.xlsx) usa, confirmado com o cliente e replicado
+// como molde padrão pros fornecedores seguintes (ver server/supplierCalc.js).
+const ESTADOS_FORNECEDOR_PADRAO = ['MISTURA', 'MOIDO'];
 
-module.exports = { ROLES, TABS, DEFAULT_PERMISSIONS, ESTADOS, ESTADOS_PLANILHA, ESTADOS_COLORMAQ };
+module.exports = { ROLES, TABS, DEFAULT_PERMISSIONS, ESTADOS, ESTADOS_PLANILHA, ESTADOS_FORNECEDOR_PADRAO };

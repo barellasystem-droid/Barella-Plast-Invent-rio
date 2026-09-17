@@ -1,10 +1,13 @@
-// Funções puras de cálculo da Colormaq — sem dependência de banco, mesmo
-// espírito de server/calc.js (que também é reaproveitado daqui para a
+// Funções puras de cálculo dos fornecedores genéricos (Colormaq, Cadence,
+// Inplast, Amvox — ver server/suppliers.js) — sem dependência de banco,
+// mesmo espírito de server/calc.js (que também é reaproveitado daqui para a
 // Divergência/Condição, ver computeDivergence). Réplica do que a planilha
-// COLORMAQ.xlsx calcula por aba/data: para cada matéria-prima, quanto foi
-// consumido pelas peças produzidas (via receita do produto) mais o que veio
-// de mistura/moído reciclado, repartido entre resina e masterbatch.
-const { ESTADOS_COLORMAQ } = require('./constants');
+// original de referência (COLORMAQ.xlsx) calcula por aba/data: para cada
+// matéria-prima, quanto foi consumido pelas peças produzidas (via receita
+// do produto) mais o que veio de mistura/moído reciclado, repartido entre
+// resina e masterbatch. Mesma função pra todos os fornecedores desse
+// molde — nada aqui é específico de um fornecedor.
+const { ESTADOS_FORNECEDOR_PADRAO } = require('./constants');
 
 // Quanto de cada matéria-prima foi consumido pelas peças produzidas nessa
 // contagem — réplica de X=G*U / Y=M*U da planilha, somado por matéria-prima
@@ -83,7 +86,7 @@ function computeRawMaterialSummary({ rawMaterials, productMaterials, pecasProduz
     if (!resina || !masterbatch) continue;
     const pctMasterbatch = percentualMasterbatch({ blend, productMaterials, pecasProduzidas });
 
-    for (const estado of ESTADOS_COLORMAQ) {
+    for (const estado of ESTADOS_FORNECEDOR_PADRAO) {
       const quantidade = quantidadeByBlendEstado.get(`${blend.id}|${estado}`) || 0;
       if (!quantidade) continue;
       const parteMasterbatch = quantidade * pctMasterbatch;

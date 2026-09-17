@@ -1,14 +1,16 @@
-// Monta o XLSX exportado da Contagem da Colormaq — uma aba, no espírito da
-// planilha de referência (COLORMAQ.xlsx: uma aba por data, com a grade de
-// produto/receita, a área de mistura reciclada, e os totais por matéria-
-// prima), com fórmulas de Excel de verdade, mesmo padrão de
-// server/export-workbook.js (a Mondial): toda fórmula carrega também o
-// valor já calculado em cache, porque uma fórmula sem valor em cache já foi
-// observado sumindo/virando erro na releitura pelo SheetJS (ver histórico
-// desse arquivo na Mondial).
+// Monta o XLSX exportado da Contagem de um fornecedor genérico (Colormaq,
+// Cadence, Inplast, Amvox — ver server/suppliers.js) — uma aba, no espírito
+// da planilha de referência original da Colormaq (COLORMAQ.xlsx: uma aba
+// por data, com a grade de produto/receita, a área de mistura reciclada, e
+// os totais por matéria-prima), com fórmulas de Excel de verdade, mesmo
+// padrão de server/export-workbook.js (a Mondial): toda fórmula carrega
+// também o valor já calculado em cache, porque uma fórmula sem valor em
+// cache já foi observado sumindo/virando erro na releitura pelo SheetJS
+// (ver histórico desse arquivo na Mondial). Mesma função pra todos os
+// fornecedores desse molde — só o rótulo do título muda (supplierLabel).
 const XLSX = require('xlsx');
-const { ESTADOS_COLORMAQ } = require('./constants');
-const { percentualMasterbatch } = require('./colormaqCalc');
+const { ESTADOS_FORNECEDOR_PADRAO } = require('./constants');
+const { percentualMasterbatch } = require('./supplierCalc');
 
 const NUM_FMT = '#,##0.000000';
 const INT_FMT = '#,##0.###';
@@ -38,12 +40,12 @@ function setFormula(ws, r, c, formula, cachedValue, fmt) {
   return addr;
 }
 
-function buildContagemSheet({ dataFormatada, products, productMaterials, pecasProduzidas, blends, materialByCode }) {
+function buildContagemSheet({ supplierLabel, dataFormatada, products, productMaterials, pecasProduzidas, blends, materialByCode }) {
   const ws = {};
   let r = 0;
   let maxCol = 9;
 
-  setText(ws, r, 0, 'COLORMAQ — CONTAGEM DE INVENTÁRIO');
+  setText(ws, r, 0, `${supplierLabel.toUpperCase()} — CONTAGEM DE INVENTÁRIO`);
   setText(ws, r, 8, dataFormatada);
   r += 2;
 
@@ -122,7 +124,7 @@ function buildContagemSheet({ dataFormatada, products, productMaterials, pecasPr
     // O mesmo masterbatch pode aparecer em mais de um blend (ex: usado com
     // duas resinas diferentes) — por isso não dá pra somar todas as células
     // daquela matéria-prima; só as dos produtos que usam ESSA dupla
-    // resina+masterbatch específica (mesmo filtro de server/colormaqCalc.js,
+    // resina+masterbatch específica (mesmo filtro de server/supplierCalc.js,
     // percentualMasterbatch, pra fórmula e valor em cache baterem sempre).
     const produtosDoBlend = products.filter((p) => {
       const bom = bomByProduct.get(p.code) || [];
@@ -140,7 +142,7 @@ function buildContagemSheet({ dataFormatada, products, productMaterials, pecasPr
       ? `SUM(${masterCellsOfBlend.join(',')})/(SUM(${masterCellsOfBlend.join(',')})+SUM(${resinaCellsOfBlend.join(',')}))`
       : String(pctCache);
 
-    for (const estado of ESTADOS_COLORMAQ) {
+    for (const estado of ESTADOS_FORNECEDOR_PADRAO) {
       const quantidade = Number((blend.estados || {})[estado]) || 0;
       setText(ws, r, 0, blend.nome);
       setText(ws, r, 1, estado);
@@ -231,9 +233,9 @@ function buildRelatorioSection(ws, startRow, { itens, materialSummaryRow }) {
   return r;
 }
 
-function buildColormaqWorkbook({ dataFormatada, itens, rawMaterials, products, productMaterials, pecasProduzidas, blends }) {
+function buildSupplierWorkbook({ supplierLabel, dataFormatada, itens, rawMaterials, products, productMaterials, pecasProduzidas, blends }) {
   const materialByCode = new Map(rawMaterials.map((m) => [m.code, m]));
-  const { ws, materialSummaryRow, nextRow } = buildContagemSheet({ dataFormatada, products, productMaterials, pecasProduzidas, blends, materialByCode });
+  const { ws, materialSummaryRow, nextRow } = buildContagemSheet({ supplierLabel, dataFormatada, products, productMaterials, pecasProduzidas, blends, materialByCode });
   const lastRow = buildRelatorioSection(ws, nextRow, { itens, materialSummaryRow });
 
   const currentRange = XLSX.utils.decode_range(ws['!ref']);
@@ -245,4 +247,4 @@ function buildColormaqWorkbook({ dataFormatada, itens, rawMaterials, products, p
   return wb;
 }
 
-module.exports = { buildColormaqWorkbook };
+module.exports = { buildSupplierWorkbook };

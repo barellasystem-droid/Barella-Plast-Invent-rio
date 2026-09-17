@@ -3,6 +3,8 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const db = require('./db');
+const { SUPPLIERS } = require('./suppliers');
+const { createSupplierRouters } = require('./supplierRoutes');
 
 const app = express();
 
@@ -38,14 +40,19 @@ app.use('/api/product-materials', require('./routes/productMaterials'));
 app.use('/api/blends', require('./routes/blends'));
 app.use('/api/contagens', require('./routes/contagens'));
 
-// Colormaq — segundo fornecedor, schema e rotas totalmente à parte (ver
-// server/db.js, seção COLORMAQ). Nada acima desta linha foi alterado para
-// isso entrar.
-app.use('/api/colormaq/raw-materials', require('./routes/colormaqRawMaterials'));
-app.use('/api/colormaq/products', require('./routes/colormaqProducts'));
-app.use('/api/colormaq/product-materials', require('./routes/colormaqProductMaterials'));
-app.use('/api/colormaq/blends', require('./routes/colormaqBlends'));
-app.use('/api/colormaq/contagens', require('./routes/colormaqContagens'));
+// Fornecedores genéricos (Colormaq, Cadence, Inplast, Amvox — ver
+// server/suppliers.js), schema e rotas totalmente à parte (ver
+// server/db.js). Nada acima desta linha foi alterado para eles entrarem.
+// Adicionar um fornecedor novo desse molde = só adicionar uma linha em
+// server/suppliers.js, sem tocar aqui.
+for (const supplier of SUPPLIERS) {
+  const routers = createSupplierRouters(supplier);
+  app.use(`/api/${supplier.key}/raw-materials`, routers.rawMaterials);
+  app.use(`/api/${supplier.key}/products`, routers.products);
+  app.use(`/api/${supplier.key}/product-materials`, routers.productMaterials);
+  app.use(`/api/${supplier.key}/blends`, routers.blends);
+  app.use(`/api/${supplier.key}/contagens`, routers.contagens);
+}
 
 // Handler final de erro — sempre responde JSON (o frontend não sabe parsear
 // a página HTML de erro padrão do Express).

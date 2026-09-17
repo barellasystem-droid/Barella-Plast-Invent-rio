@@ -1,24 +1,31 @@
-// Telas da Colormaq — segundo fornecedor do sistema. Arquivo à parte (não
-// dentro de App.jsx) para não misturar com o código da Mondial: reaproveita
-// só os pedaços genéricos de lá (Field/Badge/Banner/useAsyncList/
-// EditableNumberCell/EditableTextCell, exportados em App.jsx) e de
-// styles.jsx/constants.js — nada específico da Mondial é tocado por este
-// arquivo. Mesmo padrão visual/UX das telas da Mondial, adaptado ao modelo
-// da Colormaq (ver server/db.js e server/colormaqCalc.js): produto com
-// receita de resina+masterbatch, blend derivado automaticamente, só 2
-// estados de mistura, e contagem física em KG (matéria-prima) ou UN
-// (produto, alimenta a Explosão).
+// Telas dos fornecedores genéricos (Colormaq, Cadence, Inplast, Amvox — ver
+// web/src/suppliers.js) — um único conjunto de componentes, parametrizado
+// por supplierKey/supplierLabel (props), em vez de um arquivo copiado por
+// fornecedor (era assim enquanto só existia a Colormaq; generalizado quando
+// Cadence/Inplast/Amvox entraram, pra um ajuste aqui não precisar ser
+// repetido em 4 lugares). App.jsx monta um <XxxTab supplierKey="cadence"
+// supplierLabel="Cadence" .../> por fornecedor.
+//
+// Arquivo à parte (não dentro de App.jsx) para não misturar com o código da
+// Mondial: reaproveita só os pedaços genéricos de lá (Field/Badge/Banner/
+// useAsyncList/EditableNumberCell/EditableTextCell, exportados em App.jsx)
+// e de styles.jsx/constants.js — nada específico da Mondial é tocado por
+// este arquivo. Mesmo padrão visual/UX das telas da Mondial, adaptado ao
+// modelo dos fornecedores genéricos (ver server/db.js e
+// server/supplierCalc.js): produto com receita de resina+masterbatch,
+// blend derivado automaticamente, só 2 estados de mistura, e contagem
+// física em KG (matéria-prima) ou UN (produto, alimenta a Explosão).
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from './api.js';
 import { styles, colors } from './styles.jsx';
 import { Field, Badge, Banner, useAsyncList, EditableNumberCell, EditableTextCell } from './App.jsx';
-import { ESTADOS_COLORMAQ, ESTADO_LABELS_COLORMAQ, STATUS_LABELS, statusTone, condicaoTone, formatNumber, formatPercent, formatDate, parseDecimal } from './constants.js';
+import { ESTADOS_FORNECEDOR_PADRAO, ESTADO_LABELS_FORNECEDOR_PADRAO, STATUS_LABELS, statusTone, condicaoTone, formatNumber, formatPercent, formatDate, parseDecimal } from './constants.js';
 
 const TIPO_LABELS = { RESINA: 'Resina', MASTERBATCH: 'Masterbatch' };
 
 // -------------------------------------------------------------- Cadastros
 
-function ColormaqRawMaterialForm({ initial, isEdit, onSaved, onCancel }) {
+function SupplierRawMaterialForm({ supplierKey, initial, isEdit, onSaved, onCancel }) {
   const [form, setForm] = useState(initial || { code: '', nome: '', unidade: 'KG', tipo: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -29,8 +36,8 @@ function ColormaqRawMaterialForm({ initial, isEdit, onSaved, onCancel }) {
     setSaving(true);
     try {
       const payload = { ...form, tipo: form.tipo || null };
-      if (isEdit) await api.colormaq.rawMaterials.update(initial.code, payload);
-      else await api.colormaq.rawMaterials.create(payload);
+      if (isEdit) await api[supplierKey].rawMaterials.update(initial.code, payload);
+      else await api[supplierKey].rawMaterials.create(payload);
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -68,15 +75,15 @@ function ColormaqRawMaterialForm({ initial, isEdit, onSaved, onCancel }) {
   );
 }
 
-function ColormaqRawMaterialsSection({ canEdit }) {
-  const [materials, reload] = useAsyncList(api.colormaq.rawMaterials.list, []);
+function SupplierRawMaterialsSection({ supplierKey, canEdit }) {
+  const [materials, reload] = useAsyncList(api[supplierKey].rawMaterials.list, [supplierKey]);
   const [editing, setEditing] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [filter, setFilter] = useState('');
 
   async function remove(code) {
     if (!window.confirm(`Excluir a matéria-prima ${code}?`)) return;
-    await api.colormaq.rawMaterials.remove(code);
+    await api[supplierKey].rawMaterials.remove(code);
     reload();
   }
 
@@ -88,8 +95,8 @@ function ColormaqRawMaterialsSection({ canEdit }) {
         <input style={{ ...styles.input, maxWidth: 280 }} placeholder="Buscar..." value={filter} onChange={(e) => setFilter(e.target.value)} />
         {canEdit && !showNew && <button style={styles.button('primary')} onClick={() => setShowNew(true)}>+ Nova matéria-prima</button>}
       </div>
-      {showNew && <ColormaqRawMaterialForm onSaved={() => { setShowNew(false); reload(); }} onCancel={() => setShowNew(false)} />}
-      {editing && <ColormaqRawMaterialForm initial={editing} isEdit onSaved={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />}
+      {showNew && <SupplierRawMaterialForm supplierKey={supplierKey} onSaved={() => { setShowNew(false); reload(); }} onCancel={() => setShowNew(false)} />}
+      {editing && <SupplierRawMaterialForm supplierKey={supplierKey} initial={editing} isEdit onSaved={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />}
       <table style={{ ...styles.table, marginTop: 12 }} className="bp-table-scroll">
         <thead><tr><th style={styles.th}>Código</th><th style={styles.th}>Nome</th><th style={styles.th}>Unidade</th><th style={styles.th}>Tipo</th><th style={styles.th}></th></tr></thead>
         <tbody>
@@ -115,7 +122,7 @@ function ColormaqRawMaterialsSection({ canEdit }) {
   );
 }
 
-function ColormaqProductForm({ code, rawMaterials, onSaved, onCancel }) {
+function SupplierProductForm({ supplierKey, code, rawMaterials, onSaved, onCancel }) {
   const isEdit = !!code;
   const [form, setForm] = useState({ code: code || '', nome: '' });
   const [materials, setMaterials] = useState([{ rawMaterialCode: '', consumoUnitario: '' }, { rawMaterialCode: '', consumoUnitario: '' }]);
@@ -124,11 +131,11 @@ function ColormaqProductForm({ code, rawMaterials, onSaved, onCancel }) {
 
   useEffect(() => {
     if (!code) return;
-    api.colormaq.products.get(code).then((p) => {
+    api[supplierKey].products.get(code).then((p) => {
       setForm({ code: p.code, nome: p.nome });
       setMaterials(p.materials.length ? p.materials.map((m) => ({ rawMaterialCode: m.rawMaterialCode, consumoUnitario: m.consumoUnitario })) : [{ rawMaterialCode: '', consumoUnitario: '' }]);
     });
-  }, [code]);
+  }, [code, supplierKey]);
 
   function updateMaterial(idx, patch) {
     setMaterials((prev) => prev.map((m, i) => (i === idx ? { ...m, ...patch } : m)));
@@ -145,8 +152,8 @@ function ColormaqProductForm({ code, rawMaterials, onSaved, onCancel }) {
         ...form,
         materials: materials.filter((m) => m.rawMaterialCode).map((m) => ({ rawMaterialCode: m.rawMaterialCode, consumoUnitario: parseDecimal(m.consumoUnitario) })),
       };
-      if (isEdit) await api.colormaq.products.update(code, payload);
-      else await api.colormaq.products.create(payload);
+      if (isEdit) await api[supplierKey].products.update(code, payload);
+      else await api[supplierKey].products.create(payload);
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -196,15 +203,15 @@ function ColormaqProductForm({ code, rawMaterials, onSaved, onCancel }) {
   );
 }
 
-function ColormaqProductsSection({ canEdit }) {
-  const [products, reload] = useAsyncList(api.colormaq.products.list, []);
-  const [rawMaterials] = useAsyncList(api.colormaq.rawMaterials.list, []);
+function SupplierProductsSection({ supplierKey, canEdit }) {
+  const [products, reload] = useAsyncList(api[supplierKey].products.list, [supplierKey]);
+  const [rawMaterials] = useAsyncList(api[supplierKey].rawMaterials.list, [supplierKey]);
   const [editingCode, setEditingCode] = useState(undefined);
   const [filter, setFilter] = useState('');
 
   async function remove(code) {
     if (!window.confirm(`Excluir o produto ${code}?`)) return;
-    await api.colormaq.products.remove(code);
+    await api[supplierKey].products.remove(code);
     reload();
   }
 
@@ -217,7 +224,7 @@ function ColormaqProductsSection({ canEdit }) {
         {canEdit && editingCode === undefined && <button style={styles.button('primary')} onClick={() => setEditingCode(null)}>+ Novo produto</button>}
       </div>
       {editingCode !== undefined && (
-        <ColormaqProductForm code={editingCode} rawMaterials={rawMaterials} onSaved={() => { setEditingCode(undefined); reload(); }} onCancel={() => setEditingCode(undefined)} />
+        <SupplierProductForm supplierKey={supplierKey} code={editingCode} rawMaterials={rawMaterials} onSaved={() => { setEditingCode(undefined); reload(); }} onCancel={() => setEditingCode(undefined)} />
       )}
       <table style={{ ...styles.table, marginTop: 12 }} className="bp-table-scroll">
         <thead><tr><th style={styles.th}>Código</th><th style={styles.th}>Nome</th><th style={styles.th}></th></tr></thead>
@@ -242,24 +249,24 @@ function ColormaqProductsSection({ canEdit }) {
   );
 }
 
-export function ColormaqCadastrosTab({ perms }) {
+export function SupplierCadastrosTab({ supplierKey, supplierLabel, perms }) {
   const [sub, setSub] = useState('materias');
-  const canEdit = perms.colormaq_cadastros?.edit;
+  const canEdit = perms[`${supplierKey}_cadastros`]?.edit;
   return (
     <div>
-      <h1 style={styles.h1}>Colormaq — Cadastros</h1>
+      <h1 style={styles.h1}>{supplierLabel} — Cadastros</h1>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <button style={styles.button(sub === 'materias' ? 'primary' : 'ghost')} onClick={() => setSub('materias')}>Matérias-primas</button>
         <button style={styles.button(sub === 'produtos' ? 'primary' : 'ghost')} onClick={() => setSub('produtos')}>Produtos</button>
       </div>
-      {sub === 'materias' ? <ColormaqRawMaterialsSection canEdit={canEdit} /> : <ColormaqProductsSection canEdit={canEdit} />}
+      {sub === 'materias' ? <SupplierRawMaterialsSection supplierKey={supplierKey} canEdit={canEdit} /> : <SupplierProductsSection supplierKey={supplierKey} canEdit={canEdit} />}
     </div>
   );
 }
 
 // -------------------------------------------------------------- Explosão
 
-function ColormaqContagemSelector({ contagemId, onChange, contagens }) {
+function SupplierContagemSelector({ contagemId, onChange, contagens }) {
   return (
     <Field label="Contagem">
       <select style={styles.select} value={contagemId} onChange={(e) => onChange(e.target.value)}>
@@ -272,7 +279,7 @@ function ColormaqContagemSelector({ contagemId, onChange, contagens }) {
   );
 }
 
-function ColormaqBlendCard({ blend, canEdit, contagemId, onChanged }) {
+function SupplierBlendCard({ supplierKey, blend, canEdit, contagemId, onChanged }) {
   const [saving, setSaving] = useState(false);
   const resina = blend.components.find((c) => c.papel === 'RESINA');
   const masterbatch = blend.components.find((c) => c.papel === 'MASTERBATCH');
@@ -280,7 +287,7 @@ function ColormaqBlendCard({ blend, canEdit, contagemId, onChanged }) {
   async function setEstado(estado, valor) {
     setSaving(true);
     try {
-      await api.colormaq.contagens.blends.setEstado(contagemId, blend.id, estado, parseDecimal(valor));
+      await api[supplierKey].contagens.blends.setEstado(contagemId, blend.id, estado, parseDecimal(valor));
       onChanged();
     } finally {
       setSaving(false);
@@ -294,8 +301,8 @@ function ColormaqBlendCard({ blend, canEdit, contagemId, onChanged }) {
         Resina: {resina?.rawMaterialCode || '-'} · Masterbatch: {masterbatch?.rawMaterialCode || '-'}
       </div>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        {ESTADOS_COLORMAQ.map((estado) => (
-          <Field key={estado} label={ESTADO_LABELS_COLORMAQ[estado]}>
+        {ESTADOS_FORNECEDOR_PADRAO.map((estado) => (
+          <Field key={estado} label={ESTADO_LABELS_FORNECEDOR_PADRAO[estado]}>
             <EditableNumberCell width={120} value={blend.estados[estado] || 0} disabled={!canEdit || saving} onSave={(v) => setEstado(estado, v)} />
           </Field>
         ))}
@@ -304,32 +311,32 @@ function ColormaqBlendCard({ blend, canEdit, contagemId, onChanged }) {
   );
 }
 
-export function ColormaqExplosaoTab({ perms, onNavigate }) {
-  const [contagens] = useAsyncList(api.colormaq.contagens.list, []);
+export function SupplierExplosaoTab({ supplierKey, supplierLabel, perms, onNavigate }) {
+  const [contagens] = useAsyncList(api[supplierKey].contagens.list, [supplierKey]);
   const [contagemId, setContagemId] = useState('');
   const [contagem, setContagem] = useState(null);
-  const [blends, reload] = useAsyncList(() => (contagemId ? api.colormaq.contagens.blends.list(contagemId) : Promise.resolve([])), [contagemId]);
+  const [blends, reload] = useAsyncList(() => (contagemId ? api[supplierKey].contagens.blends.list(contagemId) : Promise.resolve([])), [supplierKey, contagemId]);
   const [filter, setFilter] = useState('');
-  const canEdit = perms.colormaq_explosao?.edit;
+  const canEdit = perms[`${supplierKey}_explosao`]?.edit;
 
-  useEffect(() => { if (contagemId) api.colormaq.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
+  useEffect(() => { if (contagemId) api[supplierKey].contagens.get(contagemId).then(setContagem); else setContagem(null); }, [supplierKey, contagemId]);
   const finalizada = contagem?.status === 'FINALIZADA';
   const podeEditar = canEdit && !finalizada;
   const filteredBlends = (blends || []).filter((b) => !filter || b.nome.toLowerCase().includes(filter.toLowerCase()));
 
   return (
     <div>
-      <h1 style={styles.h1}>Colormaq — Explosão (mistura reciclada)</h1>
-      {perms.colormaq_contagem?.view && (
+      <h1 style={styles.h1}>{supplierLabel} — Explosão (mistura reciclada)</h1>
+      {perms[`${supplierKey}_contagem`]?.view && (
         <Banner tone="default">
           A quantidade lançada aqui é somada automaticamente ao saldo da matéria-prima no Relatório de Contagem.{' '}
-          <button type="button" onClick={() => onNavigate('colormaq_contagem')} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontWeight: 600, padding: 0 }}>
+          <button type="button" onClick={() => onNavigate(`${supplierKey}_contagem`)} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontWeight: 600, padding: 0 }}>
             Ver Relatório de Contagem →
           </button>
         </Banner>
       )}
       <div style={styles.card}>
-        <ColormaqContagemSelector contagemId={contagemId} onChange={setContagemId} contagens={contagens} />
+        <SupplierContagemSelector contagemId={contagemId} onChange={setContagemId} contagens={contagens} />
       </div>
       {!contagemId && <p style={{ color: colors.textMuted }}>Selecione uma contagem para ver ou lançar Mistura/Moído.</p>}
       {contagemId && (
@@ -337,7 +344,7 @@ export function ColormaqExplosaoTab({ perms, onNavigate }) {
           {finalizada && <Banner tone="success">Essa contagem foi finalizada — só é possível consultar.</Banner>}
           <input style={{ ...styles.input, maxWidth: 300, marginBottom: 16 }} placeholder="Buscar blend..." value={filter} onChange={(e) => setFilter(e.target.value)} />
           <div style={{ display: 'grid', gap: 16 }}>
-            {filteredBlends.map((b) => <ColormaqBlendCard key={b.id} blend={b} canEdit={podeEditar} contagemId={contagemId} onChanged={reload} />)}
+            {filteredBlends.map((b) => <SupplierBlendCard key={b.id} supplierKey={supplierKey} blend={b} canEdit={podeEditar} contagemId={contagemId} onChanged={reload} />)}
             {filteredBlends.length === 0 && <p style={{ color: colors.textMuted }}>Nenhum blend encontrado — blends são criados automaticamente ao cadastrar um produto com resina + masterbatch.</p>}
           </div>
         </>
@@ -348,22 +355,22 @@ export function ColormaqExplosaoTab({ perms, onNavigate }) {
 
 // -------------------------------------------------- Matéria-Prima Processada
 
-export function ColormaqMateriaPrimaProcessadaTab({ perms }) {
-  const [contagens] = useAsyncList(api.colormaq.contagens.list, []);
+export function SupplierMateriaPrimaProcessadaTab({ supplierKey, supplierLabel, perms }) {
+  const [contagens] = useAsyncList(api[supplierKey].contagens.list, [supplierKey]);
   const [contagemId, setContagemId] = useState('');
   const [contagem, setContagem] = useState(null);
-  const [products] = useAsyncList(api.colormaq.products.list, []);
-  const [pecas, reloadPecas] = useAsyncList(() => (contagemId ? api.colormaq.contagens.pecasProduzidas.list(contagemId) : Promise.resolve([])), [contagemId]);
-  const [summary, reloadSummary] = useAsyncList(() => (contagemId ? api.colormaq.contagens.summary(contagemId) : Promise.resolve({ itens: [] })), [contagemId]);
+  const [products] = useAsyncList(api[supplierKey].products.list, [supplierKey]);
+  const [pecas, reloadPecas] = useAsyncList(() => (contagemId ? api[supplierKey].contagens.pecasProduzidas.list(contagemId) : Promise.resolve([])), [supplierKey, contagemId]);
+  const [summary, reloadSummary] = useAsyncList(() => (contagemId ? api[supplierKey].contagens.summary(contagemId) : Promise.resolve({ itens: [] })), [supplierKey, contagemId]);
   const [filter, setFilter] = useState('');
-  const canEdit = perms.colormaq_materia_prima_produzida?.edit;
+  const canEdit = perms[`${supplierKey}_materia_prima_produzida`]?.edit;
 
-  useEffect(() => { if (contagemId) api.colormaq.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
+  useEffect(() => { if (contagemId) api[supplierKey].contagens.get(contagemId).then(setContagem); else setContagem(null); }, [supplierKey, contagemId]);
   const finalizada = contagem?.status === 'FINALIZADA';
   const podeEditar = canEdit && !finalizada;
 
   async function salvar(code, quantidade) {
-    await api.colormaq.contagens.pecasProduzidas.set(contagemId, code, quantidade);
+    await api[supplierKey].contagens.pecasProduzidas.set(contagemId, code, quantidade);
     await Promise.all([reloadPecas(), reloadSummary()]);
   }
 
@@ -372,9 +379,9 @@ export function ColormaqMateriaPrimaProcessadaTab({ perms }) {
 
   return (
     <div>
-      <h1 style={styles.h1}>Colormaq — Matéria-Prima Processada</h1>
+      <h1 style={styles.h1}>{supplierLabel} — Matéria-Prima Processada</h1>
       <div style={styles.card}>
-        <ColormaqContagemSelector contagemId={contagemId} onChange={setContagemId} contagens={contagens} />
+        <SupplierContagemSelector contagemId={contagemId} onChange={setContagemId} contagens={contagens} />
       </div>
       {!contagemId && <p style={{ color: colors.textMuted }}>Selecione uma contagem para lançar as peças produzidas.</p>}
       {contagemId && (
@@ -419,7 +426,7 @@ export function ColormaqMateriaPrimaProcessadaTab({ perms }) {
 
 // -------------------------------------------------------- Relatório de Contagem
 
-function ColormaqNovaContagemForm({ onCreated }) {
+function SupplierNovaContagemForm({ supplierKey, onCreated }) {
   const [titulo, setTitulo] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -429,7 +436,7 @@ function ColormaqNovaContagemForm({ onCreated }) {
     setBusy(true);
     setError('');
     try {
-      const { id } = await api.colormaq.contagens.create({ titulo });
+      const { id } = await api[supplierKey].contagens.create({ titulo });
       onCreated(id);
     } catch (err) {
       setError(err.message);
@@ -449,18 +456,18 @@ function ColormaqNovaContagemForm({ onCreated }) {
   );
 }
 
-function ColormaqContagemDetail({ id, perms, isAdmin, refreshKey }) {
+function SupplierContagemDetail({ supplierKey, supplierLabel, id, perms, isAdmin, refreshKey }) {
   const [contagem, setContagem] = useState(null);
   const [error, setError] = useState('');
   const [changingStatus, setChangingStatus] = useState(false);
   const [filter, setFilter] = useState('');
-  const canEditReport = perms.colormaq_contagem?.edit;
+  const canEditReport = perms[`${supplierKey}_contagem`]?.edit;
 
-  const load = useCallback(() => api.colormaq.contagens.get(id).then(setContagem).catch((e) => setError(e.message)), [id]);
+  const load = useCallback(() => api[supplierKey].contagens.get(id).then(setContagem).catch((e) => setError(e.message)), [supplierKey, id]);
   useEffect(() => { load(); }, [load, refreshKey]);
 
   async function saveItem(code, patch) {
-    await api.colormaq.contagens.setItem(id, code, patch);
+    await api[supplierKey].contagens.setItem(id, code, patch);
     await load();
   }
 
@@ -468,7 +475,7 @@ function ColormaqContagemDetail({ id, perms, isAdmin, refreshKey }) {
     setChangingStatus(true);
     setError('');
     try {
-      await api.colormaq.contagens.update(id, { status });
+      await api[supplierKey].contagens.update(id, { status });
       load();
     } catch (err) {
       setError(err.message);
@@ -501,7 +508,7 @@ function ColormaqContagemDetail({ id, perms, isAdmin, refreshKey }) {
         </Banner>
       )}
       <div style={{ ...styles.card, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button style={styles.button('ghost')} onClick={() => api.colormaq.contagens.exportXlsx(id, 'COLORMAQ_' + contagem.titulo + '.xlsx')}>Exportar Excel</button>
+        <button style={styles.button('ghost')} onClick={() => api[supplierKey].contagens.exportXlsx(id, `${supplierLabel.toUpperCase()}_${contagem.titulo}.xlsx`)}>Exportar Excel</button>
         {canEditReport && podeEditar && (
           <button style={styles.button('primary')} disabled={changingStatus} onClick={() => changeStatus('FINALIZADA')}>Finalizar contagem</button>
         )}
@@ -547,23 +554,23 @@ function ColormaqContagemDetail({ id, perms, isAdmin, refreshKey }) {
   );
 }
 
-export function ColormaqContagemTab({ perms, isAdmin, selected, onSelect, refreshKey }) {
-  const [contagens, reload] = useAsyncList(api.colormaq.contagens.list, []);
+export function SupplierContagemTab({ supplierKey, supplierLabel, perms, isAdmin, selected, onSelect, refreshKey }) {
+  const [contagens, reload] = useAsyncList(api[supplierKey].contagens.list, [supplierKey]);
   const [showNew, setShowNew] = useState(false);
-  const canEdit = perms.colormaq_contagem?.edit;
+  const canEdit = perms[`${supplierKey}_contagem`]?.edit;
 
   return (
     <div>
-      <h1 style={styles.h1}>Colormaq — Relatório de Contagem</h1>
+      <h1 style={styles.h1}>{supplierLabel} — Relatório de Contagem</h1>
       {selected ? (
         <div>
           <button style={{ ...styles.button('ghost'), marginBottom: 12 }} onClick={() => onSelect(null)}>← Voltar para a lista</button>
-          <ColormaqContagemDetail id={selected} perms={perms} isAdmin={isAdmin} refreshKey={refreshKey} />
+          <SupplierContagemDetail supplierKey={supplierKey} supplierLabel={supplierLabel} id={selected} perms={perms} isAdmin={isAdmin} refreshKey={refreshKey} />
         </div>
       ) : (
         <div>
           {canEdit && !showNew && <button style={styles.button('primary')} onClick={() => setShowNew(true)}>+ Iniciar Contagem</button>}
-          {showNew && <div style={{ marginTop: 12 }}><ColormaqNovaContagemForm onCreated={(id) => { setShowNew(false); reload(); onSelect(id); }} /></div>}
+          {showNew && <div style={{ marginTop: 12 }}><SupplierNovaContagemForm supplierKey={supplierKey} onCreated={(id) => { setShowNew(false); reload(); onSelect(id); }} /></div>}
           <table style={{ ...styles.table, marginTop: 16 }} className="bp-table-scroll">
             <thead><tr><th style={styles.th}>Data</th><th style={styles.th}>Título</th><th style={styles.th}>Status</th><th style={styles.th}></th></tr></thead>
             <tbody>
@@ -585,29 +592,29 @@ export function ColormaqContagemTab({ perms, isAdmin, selected, onSelect, refres
 
 // -------------------------------------------------------------- Contagem (celular)
 
-export function ColormaqContagemMobileTab({ perms }) {
-  const [contagens] = useAsyncList(api.colormaq.contagens.list, []);
+export function SupplierContagemMobileTab({ supplierKey, supplierLabel, perms }) {
+  const [contagens] = useAsyncList(api[supplierKey].contagens.list, [supplierKey]);
   const [contagemId, setContagemId] = useState('');
   const [contagem, setContagem] = useState(null);
   const [modo, setModo] = useState('KG'); // 'KG' (matéria-prima) | 'UN' (produto)
-  const [products] = useAsyncList(api.colormaq.products.list, []);
+  const [products] = useAsyncList(api[supplierKey].products.list, [supplierKey]);
   const [busca, setBusca] = useState('');
   const [selecionado, setSelecionado] = useState(null); // { tipo: 'material'|'produto', code, nome, ... }
   const [lancamentos, setLancamentos] = useState([]);
   const [pecasProduto, setPecasProduto] = useState(0);
   const [valor, setValor] = useState('');
 
-  useEffect(() => { if (contagemId) api.colormaq.contagens.get(contagemId).then(setContagem); else setContagem(null); }, [contagemId]);
+  useEffect(() => { if (contagemId) api[supplierKey].contagens.get(contagemId).then(setContagem); else setContagem(null); }, [supplierKey, contagemId]);
 
   async function selecionarMaterial(item) {
     setSelecionado({ tipo: 'material', code: item.rawMaterialCode, nome: item.nome, unidade: item.unidade });
-    setLancamentos(await api.colormaq.contagens.materiaisLancamentos(contagemId, item.rawMaterialCode));
+    setLancamentos(await api[supplierKey].contagens.materiaisLancamentos(contagemId, item.rawMaterialCode));
   }
   async function selecionarProduto(p) {
     setSelecionado({ tipo: 'produto', code: p.code, nome: p.nome });
     const [lan, pecas] = await Promise.all([
-      api.colormaq.contagens.produtosLancamentos(contagemId, p.code),
-      api.colormaq.contagens.pecasProduzidas.list(contagemId),
+      api[supplierKey].contagens.produtosLancamentos(contagemId, p.code),
+      api[supplierKey].contagens.pecasProduzidas.list(contagemId),
     ]);
     setLancamentos(lan);
     setPecasProduto((pecas.find((x) => x.productCode === p.code) || { quantidade: 0 }).quantidade);
@@ -615,13 +622,13 @@ export function ColormaqContagemMobileTab({ perms }) {
 
   async function refresh() {
     if (selecionado.tipo === 'material') {
-      const atualizado = await api.colormaq.contagens.get(contagemId);
+      const atualizado = await api[supplierKey].contagens.get(contagemId);
       setContagem(atualizado);
-      setLancamentos(await api.colormaq.contagens.materiaisLancamentos(contagemId, selecionado.code));
+      setLancamentos(await api[supplierKey].contagens.materiaisLancamentos(contagemId, selecionado.code));
     } else {
       const [lan, pecas] = await Promise.all([
-        api.colormaq.contagens.produtosLancamentos(contagemId, selecionado.code),
-        api.colormaq.contagens.pecasProduzidas.list(contagemId),
+        api[supplierKey].contagens.produtosLancamentos(contagemId, selecionado.code),
+        api[supplierKey].contagens.pecasProduzidas.list(contagemId),
       ]);
       setLancamentos(lan);
       setPecasProduto((pecas.find((x) => x.productCode === selecionado.code) || { quantidade: 0 }).quantidade);
@@ -631,28 +638,28 @@ export function ColormaqContagemMobileTab({ perms }) {
   async function adicionar() {
     if (valor.trim() === '') return;
     const v = parseDecimal(valor);
-    if (selecionado.tipo === 'material') await api.colormaq.contagens.addMaterialLancamento(contagemId, selecionado.code, v);
-    else await api.colormaq.contagens.addProdutoLancamento(contagemId, selecionado.code, v);
+    if (selecionado.tipo === 'material') await api[supplierKey].contagens.addMaterialLancamento(contagemId, selecionado.code, v);
+    else await api[supplierKey].contagens.addProdutoLancamento(contagemId, selecionado.code, v);
     setValor('');
     await refresh();
   }
 
   async function remover(lancamentoId) {
-    if (selecionado.tipo === 'material') await api.colormaq.contagens.removeMaterialLancamento(contagemId, selecionado.code, lancamentoId);
-    else await api.colormaq.contagens.removeProdutoLancamento(contagemId, selecionado.code, lancamentoId);
+    if (selecionado.tipo === 'material') await api[supplierKey].contagens.removeMaterialLancamento(contagemId, selecionado.code, lancamentoId);
+    else await api[supplierKey].contagens.removeProdutoLancamento(contagemId, selecionado.code, lancamentoId);
     await refresh();
   }
 
   const itensMaterial = contagem ? contagem.itens.filter((i) => !busca || i.rawMaterialCode.toLowerCase().includes(busca.toLowerCase()) || i.nome.toLowerCase().includes(busca.toLowerCase())) : [];
   const itensProduto = (products || []).filter((p) => !busca || p.code.toLowerCase().includes(busca.toLowerCase()) || p.nome.toLowerCase().includes(busca.toLowerCase()));
   const finalizada = contagem?.status === 'FINALIZADA';
-  const podeContar = perms.colormaq_contagem_mobile?.edit && !finalizada;
+  const podeContar = perms[`${supplierKey}_contagem_mobile`]?.edit && !finalizada;
   const totalLancado = lancamentos.reduce((sum, l) => sum + Number(l.valor), 0);
 
   return (
     <div style={styles.mobileScreen}>
-      <h1 style={styles.h1}>Colormaq — Contagem</h1>
-      {!perms.colormaq_contagem_mobile?.edit && <Banner tone="warning">Você não tem permissão para lançar contagem.</Banner>}
+      <h1 style={styles.h1}>{supplierLabel} — Contagem</h1>
+      {!perms[`${supplierKey}_contagem_mobile`]?.edit && <Banner tone="warning">Você não tem permissão para lançar contagem.</Banner>}
 
       <Field label="Contagem">
         <select style={styles.select} value={contagemId} onChange={(e) => { setContagemId(e.target.value); setSelecionado(null); }}>

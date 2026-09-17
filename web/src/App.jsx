@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { api, getToken, setToken } from './api.js';
 import { styles, colors, GlobalStyle } from './styles.jsx';
 import { NAV_ITEMS, NAV_GROUPS, ESTADOS, ESTADO_LABELS, UNIDADES, ROLES, ROLE_LABELS, STATUS_LABELS, statusTone, condicaoTone, formatNumber, formatPercent, formatDate, hojeBrasilia, parseDecimal } from './constants.js';
-import { ColormaqCadastrosTab, ColormaqExplosaoTab, ColormaqMateriaPrimaProcessadaTab, ColormaqContagemTab, ColormaqContagemMobileTab } from './ColormaqApp.jsx';
+import { SupplierCadastrosTab, SupplierExplosaoTab, SupplierMateriaPrimaProcessadaTab, SupplierContagemTab, SupplierContagemMobileTab } from './SupplierApp.jsx';
+import { SUPPLIERS } from './suppliers.js';
 
 // ---------------------------------------------------------------- shared UI
 
@@ -1351,7 +1352,9 @@ function Layout({ user, perms, onLogout }) {
   const [contagemSelecionada, setContagemSelecionada] = useState(null);
   const [pendingRegister, setPendingRegister] = useState(null); // { contagemId, code, nome }
   const [contagemRefreshKey, setContagemRefreshKey] = useState(0);
-  const [colormaqContagemSelecionada, setColormaqContagemSelecionada] = useState(null);
+  // Uma seleção de contagem por fornecedor genérico (Colormaq, Cadence,
+  // Inplast, Amvox — ver web/src/suppliers.js), independentes entre si.
+  const [supplierContagemSelecionada, setSupplierContagemSelecionada] = useState({});
 
   function selectTab(id) {
     setActiveTab(id);
@@ -1412,11 +1415,25 @@ function Layout({ user, perms, onLogout }) {
           {activeTab === 'materia_prima_produzida' && <MateriaPrimaProduzidaTab perms={perms} onNavigate={selectTab} />}
           {activeTab === 'contagem' && <ContagemTab perms={perms} isAdmin={user.role === 'admin'} selected={contagemSelecionada} onSelect={setContagemSelecionada} onGoRegister={goRegister} refreshKey={contagemRefreshKey} />}
           {activeTab === 'contagem_mobile' && <ContagemMobileTab perms={perms} />}
-          {activeTab === 'colormaq_cadastros' && <ColormaqCadastrosTab perms={perms} />}
-          {activeTab === 'colormaq_explosao' && <ColormaqExplosaoTab perms={perms} onNavigate={selectTab} />}
-          {activeTab === 'colormaq_materia_prima_produzida' && <ColormaqMateriaPrimaProcessadaTab perms={perms} />}
-          {activeTab === 'colormaq_contagem' && <ColormaqContagemTab perms={perms} isAdmin={user.role === 'admin'} selected={colormaqContagemSelecionada} onSelect={setColormaqContagemSelecionada} refreshKey={0} />}
-          {activeTab === 'colormaq_contagem_mobile' && <ColormaqContagemMobileTab perms={perms} />}
+          {SUPPLIERS.map((s) => (
+            <React.Fragment key={s.key}>
+              {activeTab === `${s.key}_cadastros` && <SupplierCadastrosTab supplierKey={s.key} supplierLabel={s.label} perms={perms} />}
+              {activeTab === `${s.key}_explosao` && <SupplierExplosaoTab supplierKey={s.key} supplierLabel={s.label} perms={perms} onNavigate={selectTab} />}
+              {activeTab === `${s.key}_materia_prima_produzida` && <SupplierMateriaPrimaProcessadaTab supplierKey={s.key} supplierLabel={s.label} perms={perms} />}
+              {activeTab === `${s.key}_contagem` && (
+                <SupplierContagemTab
+                  supplierKey={s.key}
+                  supplierLabel={s.label}
+                  perms={perms}
+                  isAdmin={user.role === 'admin'}
+                  selected={supplierContagemSelecionada[s.key] || null}
+                  onSelect={(id) => setSupplierContagemSelecionada((prev) => ({ ...prev, [s.key]: id }))}
+                  refreshKey={0}
+                />
+              )}
+              {activeTab === `${s.key}_contagem_mobile` && <SupplierContagemMobileTab supplierKey={s.key} supplierLabel={s.label} perms={perms} />}
+            </React.Fragment>
+          ))}
           {activeTab === 'usuarios' && <UsuariosTab perms={perms} />}
           {activeTab === 'permissoes' && <PermissoesTab />}
         </div>
